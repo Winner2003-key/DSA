@@ -15,6 +15,7 @@ Sessions in the same wave can run **at the same time**, because they own separat
 - Read `GAME_RULES.md` and `GRAPH_SPECIFICATION.md` first. They are the contract.
 - **No Docker. Never run `supabase start`, `db reset` or `test db`.** SQL is run by the owner in the Supabase dashboard.
 - The PDF isn't in the repo, and must not be added.
+- **The GitHub repo is public, and every push to `main` deploys to Vercel.** Never write the source book's title, author or organisation into any file. Never copy content from `data/` (the private transcription) or `DIGITIZATION_REPORT.md` into tracked files. Bible names are fine. The book graph's slug is `livre`.
 - Only touch the folders your brief says you own. Don't git commit; the lead commits after review.
 - The UI is French. Code and docs are in English.
 - Finish by writing your report: what was done, the test result lines, deviations from the spec, and open questions.

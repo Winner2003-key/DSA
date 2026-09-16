@@ -1,24 +1,42 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npx expo export -p web --clear",
+  "buildCommand": "node scripts/check-build-env.mjs && npx expo export -p web --clear",
   "outputDirectory": "dist",
   "installCommand": "npm install --prefix ../..",
   "framework": null,
   "rewrites": [
-    { "source": "/((?!_expo|assets|favicon\\.ico|.*\\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }
+    {
+      "source": "/((?!_expo|assets|favicon\\.ico|.*\\.[a-zA-Z0-9]+$).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/_expo/static/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     },
     {
       "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     },
     {
       "source": "/index.html",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
     }
   ]
 }
