@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "DSA",
+    "slug": "dsa",
+    "scheme": "dsa",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#0E1A17",
+    "primaryColor": "#E9A825",
+    "description": "Découverte Sans Alphabet — le jeu de découverte des noms bibliques, sans lire.",
+    "locales": {
+      "fr": "./locales/fr.json"
+    },
+    "ios": {
+      "bundleIdentifier": "com.pahilabs.dsa",
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "fr",
+        "CFBundleLocalizations": ["fr"]
+      }
+    },
+    "android": {
+      "package": "com.pahilabs.dsa",
+      "adaptiveIcon": {
+        "backgroundColor": "#0E1A17",
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "output": "single",
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png",
+      "lang": "fr",
+      "name": "DSA — Découverte Sans Alphabet",
+      "shortName": "DSA",
+      "themeColor": "#0E1A17",
+      "backgroundColor": "#0E1A17"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0E1A17",
+          "dark": { "backgroundColor": "#0E1A17" },
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "router": {},
+      "eas": {}
+    }
+  }
+}

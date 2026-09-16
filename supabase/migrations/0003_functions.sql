@@ -1,0 +1,1649 @@
+-- =============================================================================
+-- DSA — Découverte Sans Alphabet
+-- 0003_functions.sql — helpers, SQL mirror of the traversal rules, RPCs
+--
+-- Idempotent (create or replace). Requires 0001 and 0002.
+-- Contract: GRAPH_SPECIFICATION.md §2 (rules) and §3 (RPCs).
+--
+-- Errors: every error raised on purpose starts with a stable code followed by
+-- a colon, e.g. 'DSA_WRONG_ROLE: ...'. Clients match on the prefix.
+--
+-- Layout:
+--   A. pure helpers           dsa_normalize, dsa_answer_class, dsa_prompt_text
+--   B. graph helpers          dsa_out_edges, dsa_is_ancestor_or_self, ...
+--   C. rules (spec §2 mirror) dsa_prompt_at, dsa_derive_position,
+--                             dsa_current_prompt, dsa_compute_answer,
+--                             dsa_is_correct_name, AI helpers
+--   D. policy helpers         dsa_is_admin, dsa_is_session_player, dsa_player_role
+--   E. internal transitions   dsa_do_* (state checks, no role checks)
+--   F. RPCs                   dsa_create_session ... dsa_list_names
+--   G. privileges
+--
+-- Every SECURITY DEFINER function pins search_path to "public, pg_temp"
+-- (pg_temp last so temporary objects can never shadow ours) and qualifies
+-- table names with public.
+-- =============================================================================
+
+
+-- #############################################################################
+-- A. Pure helpers
+-- #############################################################################
+
+-- Name comparison key: case-insensitive, ignores accents, hyphens, spaces,
+-- apostrophes and any other punctuation. 'Jésus-Christ' -> 'jesuschrist'.
+create or replace function public.dsa_normalize(p_text text)
+returns text
+language sql
+immutable
+parallel safe
+set search_path = public, pg_temp
+as $$
+  select regexp_replace(
+    lower(
+      translate(
+        replace(replace(replace(replace(coalesce(p_text, ''), 'Œ', 'OE'), 'œ', 'oe'), 'Æ', 'AE'), 'æ', 'ae'),
+        'ÀÁÂÃÄÅàáâãäåÇçÈÉÊËèéêëÌÍÎÏìíîïÑñÒÓÔÕÖòóôõöÙÚÛÜùúûüÝŸýÿ',
+        'AAAAAAaaaaaaCcEEEEeeeeIIIIiiiiNnOOOOOoooooUUUUuuuuYYyy'
+      )
+    ),
+    '[^a-z0-9]+', '', 'g'
+  );
+$$;
+
+-- answerClass(label) from spec §2 — same algorithm as packages/core answers.ts.
+-- The repetition count is never significant. Letters only, accents stripped:
+--   'OUI' -> OUI; 'NON' -> NON; 'JE NE SAIS PAS' -> JE_NE_SAIS_PAS
+--   OUI repeated (OUIOUIOUI, 'oui oui', ...) -> OUI_REPETE
+--   only N/O letters, starting with NO, containing NON at least twice with
+--   overlaps allowed (NONNON, NONONO, NONONONON, ...) -> NON_REPETE
+--   anything else (NO, NONO, OUI NON, ...) -> AUTRE
+create or replace function public.dsa_answer_class(p_label text)
+returns text
+language plpgsql
+immutable
+parallel safe
+set search_path = public, pg_temp
+as $$
+declare
+  v_letters text := regexp_replace(upper(public.dsa_normalize(p_label)), '[^A-Z]+', '', 'g');
+  v_non     integer;
+begin
+  if v_letters = 'JENESAISPAS' then
+    return 'JE_NE_SAIS_PAS';
+  elsif v_letters = 'OUI' then
+    return 'OUI';
+  elsif v_letters = 'NON' then
+    return 'NON';
+  elsif v_letters ~ '^(OUI){2,}$' then
+    return 'OUI_REPETE';
+  elsif v_letters ~ '^NO[NO]*$' then
+    select count(*) into v_non
+    from generate_series(1, length(v_letters) - 2) as i
+    where substr(v_letters, i, 3) = 'NON';
+    if v_non >= 2 then
+      return 'NON_REPETE';
+    end if;
+  end if;
+  return 'AUTRE';
+end;
+$$;
+
+-- Prompt text of a node: its clue (question) for a CHARACTER, else its label.
+create or replace function public.dsa_prompt_text(p_node_type text, p_label text, p_question text)
+returns text
+language sql
+immutable
+parallel safe
+set search_path = public, pg_temp
+as $$
+  select case
+    when p_node_type = 'CHARACTER' and nullif(btrim(p_question), '') is not null then p_question
+    else p_label
+  end;
+$$;
+
+
+-- #############################################################################
+-- B. Graph helpers (only APPROVED nodes and edges count)
+-- #############################################################################
+
+-- Playable outgoing edges of a node, in book order. child_position is 0-based.
+-- p_edge_kind null = every kind.
+create or replace function public.dsa_out_edges(p_node_id uuid, p_edge_kind text)
+returns table (
+  edge_id        uuid,
+  to_node_id     uuid,
+  answer_label   text,
+  answer_class   text,
+  order_index    integer,
+  child_position integer
+)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select
+    e.id,
+    e.to_node_id,
+    e.answer_label,
+    public.dsa_answer_class(e.answer_label),
+    e.order_index,
+    (row_number() over (order by e.order_index, e.id) - 1)::integer
+  from public.graph_edges e
+  join public.graph_nodes t on t.id = e.to_node_id
+  where e.from_node_id = p_node_id
+    and (p_edge_kind is null or e.edge_kind = p_edge_kind)
+    and e.review_status = 'APPROVED'
+    and t.review_status = 'APPROVED'
+  order by e.order_index, e.id;
+$$;
+
+-- True when p_ancestor_id is p_node_id or one of its ancestors through
+-- approved edges and approved nodes (recursive walk up).
+create or replace function public.dsa_is_ancestor_or_self(p_ancestor_id uuid, p_node_id uuid)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  with recursive up (id) as (
+    select p_node_id
+    union
+    select e.from_node_id
+    from up
+    join public.graph_edges e on e.to_node_id = up.id
+    join public.graph_nodes f on f.id = e.from_node_id
+    where e.review_status = 'APPROVED'
+      and f.review_status = 'APPROVED'
+  )
+  select p_ancestor_id is not null
+     and p_node_id is not null
+     and exists (select 1 from up where up.id = p_ancestor_id);
+$$;
+
+-- CHARACTER nodes reachable from the approved START through approved edges.
+create or replace function public.dsa_playable_characters(p_graph_id uuid)
+returns table (node_id uuid)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  with recursive reach (id) as (
+    select n.id
+    from public.graph_nodes n
+    where n.graph_id = p_graph_id
+      and n.node_type = 'START'
+      and n.review_status = 'APPROVED'
+    union
+    select e.to_node_id
+    from reach r
+    join public.graph_edges e on e.from_node_id = r.id
+    join public.graph_nodes t on t.id = e.to_node_id
+    where e.review_status = 'APPROVED'
+      and t.review_status = 'APPROVED'
+  )
+  select n.id
+  from reach r
+  join public.graph_nodes n on n.id = r.id
+  where n.node_type = 'CHARACTER';
+$$;
+
+-- Position at the start of a game: START, then its SYSTEM edge (DÉBUT) is
+-- followed automatically.
+create or replace function public.dsa_initial_node(p_graph_id uuid)
+returns uuid
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_count integer;
+  v_start uuid;
+  v_next  uuid;
+begin
+  select count(*), min(n.id::text)::uuid
+    into v_count, v_start
+  from public.graph_nodes n
+  where n.graph_id = p_graph_id
+    and n.node_type = 'START'
+    and n.review_status = 'APPROVED';
+
+  if v_count <> 1 then
+    raise exception 'DSA_GRAPH_INVALID: the graph must have exactly one approved START node (found %)', v_count;
+  end if;
+
+  select e.to_node_id into v_next
+  from public.dsa_out_edges(v_start, 'SYSTEM') e
+  order by e.child_position
+  limit 1;
+
+  return coalesce(v_next, v_start);
+end;
+$$;
+
+
+-- #############################################################################
+-- C. Rules — SQL mirror of GRAPH_SPECIFICATION.md §2 / packages/core rules.ts
+-- #############################################################################
+
+-- currentPrompt for a position (node, child cursor). Zero rows = no prompt
+-- (dead end, or a CHARACTER reached).
+--   QUESTION node:          prompt = the node itself, kind SPINE,
+--                           answer_classes = classes of its DECISION edges.
+--   CATEGORY / GROUP node:  prompt = child at child_position = cursor,
+--                           kind CHILD, answer_classes = {OUI, NON}.
+create or replace function public.dsa_prompt_at(p_node_id uuid, p_child_cursor integer)
+returns table (
+  prompt_node_id uuid,
+  at_node_id     uuid,
+  prompt_text    text,
+  kind           text,
+  node_type      text,
+  answer_classes text[]
+)
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  v_node public.graph_nodes%rowtype;
+begin
+  if p_node_id is null then
+    return;
+  end if;
+
+  select * into v_node
+  from public.graph_nodes n
+  where n.id = p_node_id
+    and n.review_status = 'APPROVED';
+
+  if not found then
+    return;
+  end if;
+
+  if v_node.node_type = 'QUESTION' then
+    return query
+      select v_node.id, v_node.id, v_node.label, 'SPINE'::text, v_node.node_type, c.classes
+      from (
+        select array_agg(x.answer_class order by x.first_position) as classes
+        from (
+          select e.answer_class, min(e.child_position) as first_position
+          from public.dsa_out_edges(v_node.id, 'DECISION') e
+          where e.answer_class <> 'AUTRE'
+          group by e.answer_class
+        ) x
+      ) c
+      where c.classes is not null;
+  elsif v_node.node_type in ('CATEGORY', 'GROUP') then
+    return query
+      select
+        t.id,
+        v_node.id,
+        public.dsa_prompt_text(t.node_type, t.label, t.question),
+        'CHILD'::text,
+        t.node_type,
+        array['OUI', 'NON']::text[]
+      from public.dsa_out_edges(v_node.id, 'HIERARCHY') e
+      join public.graph_nodes t on t.id = e.to_node_id
+      where e.child_position = p_child_cursor;
+  end if;
+end;
+$$;
+
+-- derivePosition: replay the non-undone ANSWER steps, in step order, from the
+-- initial position.
+create or replace function public.dsa_derive_position(p_session_id uuid)
+returns table (node_id uuid, child_cursor integer)
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  v_graph_id uuid;
+  v_node     uuid;
+  v_cursor   integer := 0;
+  v_expected integer := 0;
+  v_step     record;
+  v_prompt   record;
+  v_class    text;
+  v_next     uuid;
+begin
+  select s.graph_id into v_graph_id
+  from public.game_sessions s
+  where s.id = p_session_id;
+
+  if v_graph_id is null then
+    raise exception 'DSA_NOT_PLAYER: session not found';
+  end if;
+
+  v_node := public.dsa_initial_node(v_graph_id);
+
+  for v_step in
+    select m.step_index, m.node_id, m.answer_label
+    from public.game_moves m
+    where m.game_session_id = p_session_id
+      and m.move_type = 'ANSWER'
+      and not m.is_undone
+    order by m.step_index
+  loop
+    if v_step.step_index <> v_expected then
+      raise exception 'DSA_INVALID_STEP: answered steps are not contiguous (expected %, found %)',
+        v_expected, v_step.step_index;
+    end if;
+
+    select * into v_prompt from public.dsa_prompt_at(v_node, v_cursor);
+    if not found or v_prompt.prompt_node_id is distinct from v_step.node_id then
+      raise exception 'DSA_INVALID_STEP: step % no longer matches the graph', v_step.step_index;
+    end if;
+
+    v_class := public.dsa_answer_class(v_step.answer_label);
+    if not (v_class = any (v_prompt.answer_classes)) then
+      raise exception 'DSA_INVALID_STEP: step % has an answer (%) that is not allowed', v_step.step_index, v_step.answer_label;
+    end if;
+
+    if v_prompt.kind = 'SPINE' then
+      select e.to_node_id into v_next
+      from public.dsa_out_edges(v_node, 'DECISION') e
+      where e.answer_class = v_class
+      order by e.child_position
+      limit 1;
+      v_node := v_next;
+      v_cursor := 0;
+    elsif v_class = 'OUI' then
+      v_node := v_prompt.prompt_node_id;
+      v_cursor := 0;
+    else
+      v_cursor := v_cursor + 1;
+    end if;
+
+    v_expected := v_expected + 1;
+  end loop;
+
+  node_id := v_node;
+  child_cursor := v_cursor;
+  return next;
+end;
+$$;
+
+-- currentPrompt(session). Zero rows = no prompt.
+create or replace function public.dsa_current_prompt(p_session_id uuid)
+returns table (
+  prompt_node_id uuid,
+  at_node_id     uuid,
+  prompt_text    text,
+  kind           text,
+  node_type      text,
+  answer_classes text[]
+)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select p.prompt_node_id, p.at_node_id, p.prompt_text, p.kind, p.node_type, p.answer_classes
+  from public.dsa_derive_position(p_session_id) d
+  cross join lateral public.dsa_prompt_at(d.node_id, d.child_cursor) p;
+$$;
+
+-- Number of live answered steps.
+create or replace function public.dsa_step_count(p_session_id uuid)
+returns integer
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select count(*)::integer
+  from public.game_moves m
+  where m.game_session_id = p_session_id
+    and m.move_type = 'ANSWER'
+    and not m.is_undone;
+$$;
+
+-- Canonical label to record for an answer class at a prompt:
+-- the book's edge label at a SPINE prompt ('NONONO' -> 'NONONONON'),
+-- 'OUI' / 'NON' at a CHILD prompt. Null when the class is not allowed.
+create or replace function public.dsa_canonical_label(p_kind text, p_at_node_id uuid, p_answer_class text)
+returns text
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select case
+    when p_kind = 'SPINE' then (
+      select e.answer_label
+      from public.dsa_out_edges(p_at_node_id, 'DECISION') e
+      where e.answer_class = p_answer_class
+      order by e.child_position
+      limit 1
+    )
+    when p_kind = 'CHILD' and p_answer_class in ('OUI', 'NON') then p_answer_class
+  end;
+$$;
+
+-- correctAnswer: the answer class a truthful Tireur gives at the current prompt.
+--   SPINE: class of the DECISION edge whose target is an ancestor-or-self of the secret;
+--   CHILD: OUI if the child is an ancestor-or-self of the secret, else NON.
+-- Null when there is no prompt, no secret, or no edge leads to the secret.
+-- INTERNAL ONLY: never granted to anon / authenticated.
+create or replace function public.dsa_compute_answer(p_session_id uuid)
+returns text
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_secret uuid;
+  v_prompt record;
+  v_class  text;
+begin
+  select gs.secret_node_id into v_secret
+  from public.game_secrets gs
+  where gs.game_session_id = p_session_id;
+
+  if v_secret is null then
+    return null;
+  end if;
+
+  select * into v_prompt from public.dsa_current_prompt(p_session_id);
+  if not found then
+    return null;
+  end if;
+
+  if v_prompt.kind = 'SPINE' then
+    select e.answer_class into v_class
+    from public.dsa_out_edges(v_prompt.at_node_id, 'DECISION') e
+    where e.answer_class <> 'AUTRE'
+      and public.dsa_is_ancestor_or_self(e.to_node_id, v_secret)
+    order by e.child_position
+    limit 1;
+    return v_class;
+  end if;
+
+  return case
+    when public.dsa_is_ancestor_or_self(v_prompt.prompt_node_id, v_secret) then 'OUI'
+    else 'NON'
+  end;
+end;
+$$;
+
+-- isCorrectName: exact name on the card (the secret node's label), compared
+-- with dsa_normalize. Aliases do not count.
+create or replace function public.dsa_is_correct_name(p_session_id uuid, p_name text)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select coalesce((
+    select public.dsa_normalize(p_name) <> ''
+       and public.dsa_normalize(p_name) = public.dsa_normalize(n.label)
+    from public.game_secrets gs
+    join public.graph_nodes n on n.id = gs.secret_node_id
+    where gs.game_session_id = p_session_id
+  ), false);
+$$;
+
+-- aiTireurAnswer: the label the AI Tireur says now.
+--   awaiting GUESS_CONFIRM -> 'OUI' / 'NON' (isCorrectName);
+--   otherwise -> canonical label of the correct answer at the current prompt.
+create or replace function public.dsa_ai_tireur_answer(p_session_id uuid)
+returns text
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_prompt  record;
+  v_class   text;
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+
+  if v_session.awaiting = 'GUESS_CONFIRM' then
+    return case when public.dsa_is_correct_name(p_session_id, v_session.pending_guess) then 'OUI' else 'NON' end;
+  end if;
+
+  select * into v_prompt from public.dsa_current_prompt(p_session_id);
+  if not found then
+    return null;
+  end if;
+
+  v_class := public.dsa_compute_answer(p_session_id);
+  if v_class is null then
+    return null;
+  end if;
+
+  return public.dsa_canonical_label(v_prompt.kind, v_prompt.at_node_id, v_class);
+end;
+$$;
+
+-- aiDecouvreurAction (mirror of packages/core):
+--   at a CHARACTER node -> {"type":"GUESS","name":<label>}
+--   a prompt exists     -> {"type":"ASK"}
+--   dead end            -> {"type":"BACK","step_index":<latest live step answered NON>}
+--   nothing to do       -> {"type":"NONE"}
+create or replace function public.dsa_ai_decouvreur_action(p_session_id uuid)
+returns jsonb
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_position record;
+  v_node     public.graph_nodes%rowtype;
+  v_step     integer;
+begin
+  select * into v_position from public.dsa_derive_position(p_session_id);
+
+  select * into v_node from public.graph_nodes n where n.id = v_position.node_id;
+  if found and v_node.node_type = 'CHARACTER' then
+    return jsonb_build_object('type', 'GUESS', 'name', v_node.label);
+  end if;
+
+  if exists (select 1 from public.dsa_prompt_at(v_position.node_id, v_position.child_cursor)) then
+    return jsonb_build_object('type', 'ASK');
+  end if;
+
+  select max(m.step_index) into v_step
+  from public.game_moves m
+  where m.game_session_id = p_session_id
+    and m.move_type = 'ANSWER'
+    and not m.is_undone
+    and public.dsa_answer_class(m.answer_label) = 'NON';
+
+  if v_step is null then
+    return jsonb_build_object('type', 'NONE');
+  end if;
+
+  return jsonb_build_object('type', 'BACK', 'step_index', v_step);
+end;
+$$;
+
+-- Traversed path: live answered steps, in order.
+create or replace function public.dsa_path_json(p_session_id uuid)
+returns jsonb
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'step_index', m.step_index,
+        'node_id', m.node_id,
+        'text', coalesce(m.payload->>'text', public.dsa_prompt_text(n.node_type, n.label, n.question)),
+        'answer_label', m.answer_label
+      )
+      order by m.step_index
+    ),
+    '[]'::jsonb
+  )
+  from public.game_moves m
+  left join public.graph_nodes n on n.id = m.node_id
+  where m.game_session_id = p_session_id
+    and m.move_type = 'ANSWER'
+    and not m.is_undone;
+$$;
+
+-- Store the derived position on the session row (for realtime subscribers and
+-- debugging; the moves remain the source of truth).
+create or replace function public.dsa_sync_position(p_session_id uuid)
+returns void
+language sql
+set search_path = public, pg_temp
+as $$
+  update public.game_sessions s
+  set current_node_id = d.node_id,
+      child_cursor = d.child_cursor
+  from public.dsa_derive_position(p_session_id) d
+  where s.id = p_session_id;
+$$;
+
+create or replace function public.dsa_new_room_code()
+returns text
+language sql
+volatile
+set search_path = public, pg_temp
+as $$
+  select 'DSA-' || lpad(floor(random() * 10000)::integer::text, 4, '0');
+$$;
+
+
+-- #############################################################################
+-- D. Policy helpers (SECURITY DEFINER: they read game_players / admin_users as
+--    the owner, so policies that call them never recurse into RLS)
+-- #############################################################################
+
+create or replace function public.dsa_is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.admin_users a where a.user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.dsa_is_session_player(p_session_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.game_players p
+    where p.game_session_id = p_session_id
+      and p.user_id = auth.uid()
+  );
+$$;
+
+-- The caller's role in a session, or null. A LOCAL creator holds both roles;
+-- TIREUR is returned then.
+create or replace function public.dsa_player_role(p_session_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select p.role
+  from public.game_players p
+  where p.game_session_id = p_session_id
+    and p.user_id = auth.uid()
+  order by case p.role when 'TIREUR' then 0 else 1 end
+  limit 1;
+$$;
+
+
+-- #############################################################################
+-- E. Internal transitions (no role checks; they check the game state).
+--    Callers lock the session row first.
+-- #############################################################################
+
+-- Auth + membership + optional role check; returns the session row.
+create or replace function public.dsa_require_player(p_session_id uuid, p_role text, p_lock boolean)
+returns public.game_sessions
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_session public.game_sessions%rowtype;
+begin
+  if v_uid is null then
+    raise exception 'DSA_NOT_AUTHENTICATED: sign in first (anonymous sign-in is fine)';
+  end if;
+
+  if p_lock then
+    select * into v_session from public.game_sessions s where s.id = p_session_id for update;
+  else
+    select * into v_session from public.game_sessions s where s.id = p_session_id;
+  end if;
+
+  if not found or not exists (
+    select 1 from public.game_players p
+    where p.game_session_id = p_session_id and p.user_id = v_uid
+  ) then
+    raise exception 'DSA_NOT_PLAYER: you are not a player in this session';
+  end if;
+
+  if p_role is not null and not exists (
+    select 1 from public.game_players p
+    where p.game_session_id = p_session_id and p.user_id = v_uid and p.role = p_role
+  ) then
+    raise exception 'DSA_WRONG_ROLE: only the % can do this', p_role;
+  end if;
+
+  return v_session;
+end;
+$$;
+
+create or replace function public.dsa_assert_not_over(p_session public.game_sessions)
+returns void
+language plpgsql
+immutable
+set search_path = public, pg_temp
+as $$
+begin
+  if p_session.status in ('DISCOVERED', 'ABANDONED') then
+    raise exception 'DSA_GAME_OVER: the game is over (%)', p_session.status;
+  end if;
+end;
+$$;
+
+create or replace function public.dsa_graph_for_play(p_graph_slug text)
+returns uuid
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_graph_id uuid;
+begin
+  select g.id into v_graph_id
+  from public.graphs g
+  where g.slug = btrim(p_graph_slug)
+    and ((g.status = 'PUBLISHED' and g.is_active) or public.dsa_is_admin());
+
+  if v_graph_id is null then
+    raise exception 'DSA_GRAPH_NOT_FOUND: no published graph "%"', p_graph_slug;
+  end if;
+  return v_graph_id;
+end;
+$$;
+
+create or replace function public.dsa_start_play(p_session_id uuid)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  update public.game_sessions s
+  set status = 'PLAYING',
+      awaiting = 'QUESTION',
+      started_at = coalesce(s.started_at, now()),
+      current_node_id = public.dsa_initial_node(s.graph_id),
+      child_cursor = 0,
+      pending_prompt_node_id = null,
+      pending_guess = null
+  where s.id = p_session_id;
+
+  insert into public.game_moves (game_session_id, move_type, actor_role, payload)
+  values (p_session_id, 'SYSTEM', 'SYSTEM', jsonb_build_object('event', 'STARTED'));
+end;
+$$;
+
+-- The session's state as JSON (spec §3). Never contains the secret.
+create or replace function public.dsa_state_json(p_session_id uuid)
+returns jsonb
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_session   public.game_sessions%rowtype;
+  v_prompt    record;
+  v_prompt_js jsonb := null;
+  v_dead_end  boolean := false;
+  v_node_type text;
+  v_players   jsonb;
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+
+  if v_session.status = 'PLAYING' then
+    select * into v_prompt from public.dsa_current_prompt(p_session_id);
+    if found then
+      v_prompt_js := jsonb_build_object(
+        'node_id', v_prompt.prompt_node_id,
+        'text', v_prompt.prompt_text,
+        'node_type', v_prompt.node_type,
+        'answer_classes', to_jsonb(v_prompt.answer_classes)
+      );
+    else
+      select n.node_type into v_node_type
+      from public.dsa_derive_position(p_session_id) d
+      left join public.graph_nodes n on n.id = d.node_id;
+      v_dead_end := v_node_type is distinct from 'CHARACTER';
+    end if;
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'role', p.role,
+        'display_name', p.display_name,
+        'is_ai', p.is_ai,
+        'is_me', coalesce(p.user_id = auth.uid(), false)
+      )
+      order by case p.role when 'TIREUR' then 0 else 1 end
+    ),
+    '[]'::jsonb
+  ) into v_players
+  from public.game_players p
+  where p.game_session_id = p_session_id;
+
+  return jsonb_build_object(
+    'status', v_session.status,
+    'mode', v_session.mode,
+    'awaiting', v_session.awaiting,
+    'prompt', v_prompt_js,
+    'dead_end', v_dead_end,
+    'pending_guess', v_session.pending_guess,
+    'path', public.dsa_path_json(p_session_id),
+    'players', v_players
+  );
+end;
+$$;
+
+create or replace function public.dsa_do_ask(p_session_id uuid, p_actor_user_id uuid, p_is_ai boolean)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_prompt  record;
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+  perform public.dsa_assert_not_over(v_session);
+
+  if v_session.status <> 'PLAYING' or v_session.awaiting <> 'QUESTION' then
+    raise exception 'DSA_NOT_AWAITING_QUESTION: a question cannot be asked now (awaiting %)', v_session.awaiting;
+  end if;
+
+  select * into v_prompt from public.dsa_current_prompt(p_session_id);
+  if not found then
+    raise exception 'DSA_NO_PROMPT: there is no question to ask here; call a name or go back';
+  end if;
+
+  insert into public.game_moves (
+    game_session_id, move_type, step_index, actor_role, actor_user_id, is_ai, node_id, payload
+  ) values (
+    p_session_id, 'QUESTION', public.dsa_step_count(p_session_id), 'DECOUVREUR', p_actor_user_id, p_is_ai,
+    v_prompt.prompt_node_id,
+    jsonb_build_object('text', v_prompt.prompt_text, 'kind', v_prompt.kind)
+  );
+
+  update public.game_sessions s
+  set awaiting = 'ANSWER',
+      pending_prompt_node_id = v_prompt.prompt_node_id
+  where s.id = p_session_id;
+end;
+$$;
+
+create or replace function public.dsa_do_answer(p_session_id uuid, p_answer_label text, p_actor_user_id uuid, p_is_ai boolean)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_prompt  record;
+  v_class   text;
+  v_label   text;
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+  perform public.dsa_assert_not_over(v_session);
+
+  if v_session.status <> 'PLAYING' or v_session.awaiting <> 'ANSWER' then
+    raise exception 'DSA_NOT_AWAITING_ANSWER: no question is waiting for an answer (awaiting %)', v_session.awaiting;
+  end if;
+
+  select * into v_prompt from public.dsa_current_prompt(p_session_id);
+  if not found or v_prompt.prompt_node_id is distinct from v_session.pending_prompt_node_id then
+    raise exception 'DSA_NO_PROMPT: the asked question is no longer current';
+  end if;
+
+  v_class := public.dsa_answer_class(p_answer_label);
+  if not (v_class = any (v_prompt.answer_classes)) then
+    raise exception 'DSA_ANSWER_NOT_ALLOWED: "%" (%) is not allowed here; allowed: %',
+      p_answer_label, v_class, array_to_string(v_prompt.answer_classes, ', ');
+  end if;
+
+  v_label := public.dsa_canonical_label(v_prompt.kind, v_prompt.at_node_id, v_class);
+
+  insert into public.game_moves (
+    game_session_id, move_type, step_index, actor_role, actor_user_id, is_ai, answer_label, node_id, payload
+  ) values (
+    p_session_id, 'ANSWER', public.dsa_step_count(p_session_id), 'TIREUR', p_actor_user_id, p_is_ai,
+    v_label, v_prompt.prompt_node_id,
+    jsonb_build_object(
+      'text', v_prompt.prompt_text,
+      'kind', v_prompt.kind,
+      'answer_class', v_class,
+      'spoken_label', p_answer_label
+    )
+  );
+
+  update public.game_sessions s
+  set awaiting = 'QUESTION',
+      pending_prompt_node_id = null
+  where s.id = p_session_id;
+
+  perform public.dsa_sync_position(p_session_id);
+end;
+$$;
+
+create or replace function public.dsa_do_guess(p_session_id uuid, p_name text, p_actor_user_id uuid, p_is_ai boolean)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_name    text := btrim(p_name);
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+  perform public.dsa_assert_not_over(v_session);
+
+  if v_session.status <> 'PLAYING' or v_session.awaiting <> 'QUESTION' then
+    raise exception 'DSA_NOT_AWAITING_QUESTION: a name cannot be called now (awaiting %)', v_session.awaiting;
+  end if;
+
+  if public.dsa_normalize(v_name) = '' then
+    raise exception 'DSA_INVALID_NAME: the name is empty';
+  end if;
+
+  insert into public.game_moves (
+    game_session_id, move_type, step_index, actor_role, actor_user_id, is_ai, payload
+  ) values (
+    p_session_id, 'GUESS', public.dsa_step_count(p_session_id), 'DECOUVREUR', p_actor_user_id, p_is_ai,
+    jsonb_build_object('name', v_name)
+  );
+
+  update public.game_sessions s
+  set awaiting = 'GUESS_CONFIRM',
+      pending_guess = v_name
+  where s.id = p_session_id;
+end;
+$$;
+
+create or replace function public.dsa_do_confirm_guess(p_session_id uuid, p_answer_label text, p_actor_user_id uuid, p_is_ai boolean)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_class   text := public.dsa_answer_class(p_answer_label);
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+  perform public.dsa_assert_not_over(v_session);
+
+  if v_session.status <> 'PLAYING' or v_session.awaiting <> 'GUESS_CONFIRM' then
+    raise exception 'DSA_NOT_AWAITING_GUESS_CONFIRM: no called name is waiting for confirmation (awaiting %)', v_session.awaiting;
+  end if;
+
+  if v_class not in ('OUI', 'NON') then
+    raise exception 'DSA_ANSWER_NOT_ALLOWED: "%" (%) is not allowed here; allowed: OUI, NON', p_answer_label, v_class;
+  end if;
+
+  insert into public.game_moves (
+    game_session_id, move_type, step_index, actor_role, actor_user_id, is_ai, answer_label, payload
+  ) values (
+    p_session_id, 'GUESS_CONFIRM', public.dsa_step_count(p_session_id), 'TIREUR', p_actor_user_id, p_is_ai,
+    v_class, jsonb_build_object('name', v_session.pending_guess)
+  );
+
+  if v_class = 'OUI' then
+    update public.game_sessions s
+    set status = 'DISCOVERED',
+        winner = 'DECOUVREUR',
+        awaiting = 'NONE',
+        ended_at = now(),
+        pending_prompt_node_id = null
+    where s.id = p_session_id;
+  else
+    update public.game_sessions s
+    set awaiting = 'QUESTION',
+        pending_guess = null
+    where s.id = p_session_id;
+  end if;
+end;
+$$;
+
+-- Keep the first p_keep answered steps; flag later ANSWER and QUESTION moves
+-- (including a question still waiting for its answer) as undone.
+create or replace function public.dsa_do_truncate(
+  p_session_id    uuid,
+  p_keep          integer,
+  p_move_type     text,
+  p_actor_role    text,
+  p_actor_user_id uuid,
+  p_is_ai         boolean,
+  p_payload       jsonb
+)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  update public.game_moves m
+  set is_undone = true
+  where m.game_session_id = p_session_id
+    and not m.is_undone
+    and m.move_type in ('ANSWER', 'QUESTION')
+    and m.step_index >= p_keep;
+
+  insert into public.game_moves (
+    game_session_id, move_type, step_index, actor_role, actor_user_id, is_ai, payload
+  ) values (
+    p_session_id, p_move_type, p_keep, p_actor_role, p_actor_user_id, p_is_ai, coalesce(p_payload, '{}'::jsonb)
+  );
+
+  update public.game_sessions s
+  set awaiting = 'QUESTION',
+      pending_prompt_node_id = null,
+      pending_guess = null
+  where s.id = p_session_id;
+
+  perform public.dsa_sync_position(p_session_id);
+end;
+$$;
+
+-- Découvreur goes back to step k: keep the first k steps, question k is asked again.
+create or replace function public.dsa_do_go_back(p_session_id uuid, p_step_index integer, p_actor_user_id uuid, p_is_ai boolean)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_count   integer;
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+  perform public.dsa_assert_not_over(v_session);
+
+  if v_session.status <> 'PLAYING' or v_session.awaiting not in ('QUESTION', 'ANSWER') then
+    raise exception 'DSA_NOT_AWAITING_QUESTION: cannot go back now (awaiting %)', v_session.awaiting;
+  end if;
+
+  v_count := public.dsa_step_count(p_session_id);
+  if p_step_index is null or p_step_index < 0 or p_step_index >= v_count then
+    raise exception 'DSA_INVALID_STEP: step % does not exist (% answered steps)', p_step_index, v_count;
+  end if;
+
+  perform public.dsa_do_truncate(
+    p_session_id, p_step_index, 'BACK', 'DECOUVREUR', p_actor_user_id, p_is_ai,
+    jsonb_build_object('from_step_count', v_count)
+  );
+end;
+$$;
+
+-- Tireur says "QUESTION" x N: remove the last N answered steps (N = 1..3).
+create or replace function public.dsa_do_rewind(p_session_id uuid, p_count integer, p_actor_user_id uuid, p_is_ai boolean)
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_steps   integer;
+begin
+  select * into v_session from public.game_sessions s where s.id = p_session_id;
+  perform public.dsa_assert_not_over(v_session);
+
+  if v_session.status <> 'PLAYING' or v_session.awaiting not in ('QUESTION', 'ANSWER') then
+    raise exception 'DSA_NOT_AWAITING_ANSWER: cannot rewind now (awaiting %)', v_session.awaiting;
+  end if;
+
+  v_steps := public.dsa_step_count(p_session_id);
+  if p_count is null or p_count < 1 or p_count > 3 or p_count > v_steps then
+    raise exception 'DSA_INVALID_REWIND: rewind count must be 1 to 3 and at most the % answered steps (got %)', v_steps, p_count;
+  end if;
+
+  perform public.dsa_do_truncate(
+    p_session_id, v_steps - p_count, 'REWIND', 'TIREUR', p_actor_user_id, p_is_ai,
+    jsonb_build_object('count', p_count, 'from_step_count', v_steps)
+  );
+end;
+$$;
+
+
+-- #############################################################################
+-- F. RPCs (SECURITY DEFINER; granted to authenticated)
+-- #############################################################################
+
+-- dsa_create_session -> (session_id, room_code)
+create or replace function public.dsa_create_session(
+  p_graph_slug   text,
+  p_mode         text,
+  p_role         text default null,
+  p_display_name text default null
+)
+returns table (session_id uuid, room_code text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  v_uid          uuid := auth.uid();
+  v_mode         text := upper(btrim(p_mode));
+  v_role         text := nullif(upper(btrim(p_role)), '');
+  v_display_name text := nullif(btrim(p_display_name), '');
+  v_graph_id     uuid;
+  v_secret_id    uuid;
+  v_character_id uuid;
+  v_session_id   uuid;
+  v_code         text;
+  v_attempt      integer;
+begin
+  if v_uid is null then
+    raise exception 'DSA_NOT_AUTHENTICATED: sign in first (anonymous sign-in is fine)';
+  end if;
+
+  if v_mode is null or v_mode not in ('HUMAN_VS_HUMAN', 'AI_TIREUR', 'AI_DECOUVREUR', 'LOCAL') then
+    raise exception 'DSA_INVALID_MODE: mode must be HUMAN_VS_HUMAN, AI_TIREUR, AI_DECOUVREUR or LOCAL (got %)', p_mode;
+  end if;
+
+  if v_mode = 'HUMAN_VS_HUMAN' then
+    if v_role is null or v_role not in ('TIREUR', 'DECOUVREUR') then
+      raise exception 'DSA_INVALID_ROLE: choose TIREUR or DECOUVREUR (got %)', p_role;
+    end if;
+  elsif v_mode = 'AI_TIREUR' then
+    if v_role is not null and v_role <> 'DECOUVREUR' then
+      raise exception 'DSA_INVALID_ROLE: in AI_TIREUR mode you are the DECOUVREUR (got %)', p_role;
+    end if;
+    v_role := 'DECOUVREUR';
+  elsif v_mode = 'AI_DECOUVREUR' then
+    if v_role is not null and v_role <> 'TIREUR' then
+      raise exception 'DSA_INVALID_ROLE: in AI_DECOUVREUR mode you are the TIREUR (got %)', p_role;
+    end if;
+    v_role := 'TIREUR';
+  else
+    v_role := null;  -- LOCAL: both roles
+  end if;
+
+  v_graph_id := public.dsa_graph_for_play(p_graph_slug);
+
+  select c.node_id into v_secret_id
+  from public.dsa_playable_characters(v_graph_id) c
+  order by random()
+  limit 1;
+
+  if v_secret_id is null then
+    raise exception 'DSA_NO_PLAYABLE_SECRET: the graph has no playable CHARACTER node';
+  end if;
+
+  select n.character_id into v_character_id from public.graph_nodes n where n.id = v_secret_id;
+
+  for v_attempt in 1..100 loop
+    v_code := public.dsa_new_room_code();
+    begin
+      insert into public.game_sessions (graph_id, mode, status, room_code, awaiting, created_by)
+      values (v_graph_id, v_mode, 'WAITING', v_code, 'NONE', v_uid)
+      returning id into v_session_id;
+      exit;
+    exception when unique_violation then
+      v_session_id := null;  -- room code taken by an open session: retry
+    end;
+  end loop;
+
+  if v_session_id is null then
+    raise exception 'DSA_ROOM_CODE_EXHAUSTED: could not find a free room code, try again';
+  end if;
+
+  insert into public.game_secrets (game_session_id, secret_node_id, secret_character_id)
+  values (v_session_id, v_secret_id, v_character_id);
+
+  if v_mode = 'LOCAL' then
+    insert into public.game_players (game_session_id, user_id, role, display_name)
+    values (v_session_id, v_uid, 'TIREUR', v_display_name),
+           (v_session_id, v_uid, 'DECOUVREUR', v_display_name);
+  else
+    insert into public.game_players (game_session_id, user_id, role, display_name)
+    values (v_session_id, v_uid, v_role, v_display_name);
+
+    if v_mode in ('AI_TIREUR', 'AI_DECOUVREUR') then
+      insert into public.game_players (game_session_id, user_id, role, display_name, is_ai)
+      values (v_session_id, null, case v_role when 'TIREUR' then 'DECOUVREUR' else 'TIREUR' end, 'IA', true);
+    end if;
+  end if;
+
+  if v_mode <> 'HUMAN_VS_HUMAN' then
+    perform public.dsa_start_play(v_session_id);
+  end if;
+
+  session_id := v_session_id;
+  room_code := v_code;
+  return next;
+end;
+$$;
+
+-- dsa_join_session -> (session_id, role). Takes the free role of an open
+-- HUMAN_VS_HUMAN room. Joining again returns the role already held.
+create or replace function public.dsa_join_session(p_room_code text, p_display_name text default null)
+returns table (session_id uuid, role text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  v_uid       uuid := auth.uid();
+  v_code      text := upper(regexp_replace(coalesce(p_room_code, ''), '\s+', '', 'g'));
+  v_session   public.game_sessions%rowtype;
+  v_existing  text;
+  v_free_role text;
+begin
+  if v_uid is null then
+    raise exception 'DSA_NOT_AUTHENTICATED: sign in first (anonymous sign-in is fine)';
+  end if;
+
+  if v_code ~ '^[0-9]{4}$' then
+    v_code := 'DSA-' || v_code;
+  elsif v_code ~ '^DSA[0-9]{4}$' then
+    v_code := 'DSA-' || substr(v_code, 4);
+  end if;
+
+  select * into v_session
+  from public.game_sessions s
+  where s.room_code = v_code
+    and s.status in ('WAITING', 'READY', 'PLAYING')
+  order by s.created_at desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'DSA_ROOM_NOT_FOUND: no open room with code %', v_code;
+  end if;
+
+  select p.role into v_existing
+  from public.game_players p
+  where p.game_session_id = v_session.id
+    and p.user_id = v_uid
+  order by case p.role when 'TIREUR' then 0 else 1 end
+  limit 1;
+
+  if v_existing is not null then
+    session_id := v_session.id;
+    role := v_existing;
+    return next;
+    return;
+  end if;
+
+  select r.role_name into v_free_role
+  from (values ('TIREUR', 0), ('DECOUVREUR', 1)) as r (role_name, sort_order)
+  where not exists (
+    select 1 from public.game_players p
+    where p.game_session_id = v_session.id and p.role = r.role_name
+  )
+  order by r.sort_order
+  limit 1;
+
+  if v_free_role is null or v_session.mode <> 'HUMAN_VS_HUMAN' then
+    raise exception 'DSA_ROOM_FULL: this room already has its players';
+  end if;
+
+  insert into public.game_players (game_session_id, user_id, role, display_name)
+  values (v_session.id, v_uid, v_free_role, nullif(btrim(p_display_name), ''));
+
+  if v_session.status = 'WAITING' then
+    perform public.dsa_start_play(v_session.id);
+  end if;
+
+  session_id := v_session.id;
+  role := v_free_role;
+  return next;
+end;
+$$;
+
+-- dsa_get_my_secret -> (node_id, name, description). TIREUR only.
+-- 0006 changes its return type (adds has_homonyms), so drop it first: without
+-- this, re-running 00_all_migrations.sql on an upgraded project would fail with
+-- "cannot change return type of existing function". 0006 recreates it.
+drop function if exists public.dsa_get_my_secret(uuid);
+create or replace function public.dsa_get_my_secret(p_session_id uuid)
+returns table (node_id uuid, name text, description text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+begin
+  perform public.dsa_require_player(p_session_id, 'TIREUR', false);
+
+  return query
+    select n.id, n.label, coalesce(c.description, n.description)
+    from public.game_secrets gs
+    join public.graph_nodes n on n.id = gs.secret_node_id
+    left join public.bible_characters c on c.id = coalesce(gs.secret_character_id, n.character_id)
+    where gs.game_session_id = p_session_id;
+end;
+$$;
+
+-- dsa_get_state -> jsonb (spec §3). Players only. Never the secret.
+create or replace function public.dsa_get_state(p_session_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.dsa_require_player(p_session_id, null, false);
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_ask -> state. DÉCOUVREUR. In AI_TIREUR mode the answer is recorded at once.
+create or replace function public.dsa_ask(p_session_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_label   text;
+begin
+  v_session := public.dsa_require_player(p_session_id, 'DECOUVREUR', true);
+  perform public.dsa_do_ask(p_session_id, auth.uid(), false);
+
+  if v_session.mode = 'AI_TIREUR' then
+    v_label := public.dsa_ai_tireur_answer(p_session_id);
+    if v_label is null then
+      raise exception 'DSA_NO_PROMPT: the AI Tireur has no answer for this question';
+    end if;
+    perform public.dsa_do_answer(p_session_id, v_label, null, true);
+  end if;
+
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_answer -> state. TIREUR. The label's class must be allowed by the prompt.
+create or replace function public.dsa_answer(p_session_id uuid, p_answer_label text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.dsa_require_player(p_session_id, 'TIREUR', true);
+  perform public.dsa_do_answer(p_session_id, p_answer_label, auth.uid(), false);
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_guess -> state. DÉCOUVREUR. AI_TIREUR mode confirms at once.
+create or replace function public.dsa_guess(p_session_id uuid, p_name text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+begin
+  v_session := public.dsa_require_player(p_session_id, 'DECOUVREUR', true);
+  perform public.dsa_do_guess(p_session_id, p_name, auth.uid(), false);
+
+  if v_session.mode = 'AI_TIREUR' then
+    perform public.dsa_do_confirm_guess(p_session_id, public.dsa_ai_tireur_answer(p_session_id), null, true);
+  end if;
+
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_confirm_guess -> state. TIREUR. OUI -> DISCOVERED, winner DECOUVREUR.
+create or replace function public.dsa_confirm_guess(p_session_id uuid, p_answer_label text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.dsa_require_player(p_session_id, 'TIREUR', true);
+  perform public.dsa_do_confirm_guess(p_session_id, p_answer_label, auth.uid(), false);
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_go_back -> state. DÉCOUVREUR. Keeps the first p_step_index steps.
+create or replace function public.dsa_go_back(p_session_id uuid, p_step_index integer)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.dsa_require_player(p_session_id, 'DECOUVREUR', true);
+  perform public.dsa_do_go_back(p_session_id, p_step_index, auth.uid(), false);
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_rewind -> state. TIREUR. "QUESTION" x p_count (1..3).
+create or replace function public.dsa_rewind(p_session_id uuid, p_count integer)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.dsa_require_player(p_session_id, 'TIREUR', true);
+  perform public.dsa_do_rewind(p_session_id, p_count, auth.uid(), false);
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_ai_decouvreur_step -> state. TIREUR in AI_DECOUVREUR mode.
+-- The server plays the Découvreur's next action (ask / call a name / go back).
+create or replace function public.dsa_ai_decouvreur_step(p_session_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_action  jsonb;
+begin
+  v_session := public.dsa_require_player(p_session_id, 'TIREUR', true);
+
+  if v_session.mode <> 'AI_DECOUVREUR' then
+    raise exception 'DSA_WRONG_MODE: only available in AI_DECOUVREUR mode';
+  end if;
+  perform public.dsa_assert_not_over(v_session);
+
+  if v_session.status <> 'PLAYING' or v_session.awaiting <> 'QUESTION' then
+    raise exception 'DSA_NOT_AWAITING_QUESTION: the Tireur must answer first (awaiting %)', v_session.awaiting;
+  end if;
+
+  v_action := public.dsa_ai_decouvreur_action(p_session_id);
+
+  case v_action->>'type'
+    when 'ASK' then
+      perform public.dsa_do_ask(p_session_id, null, true);
+    when 'GUESS' then
+      perform public.dsa_do_guess(p_session_id, v_action->>'name', null, true);
+    when 'BACK' then
+      perform public.dsa_do_go_back(p_session_id, (v_action->>'step_index')::integer, null, true);
+    else
+      raise exception 'DSA_NO_PROMPT: the AI Découvreur has nothing to do here';
+  end case;
+
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_abandon -> state. Any player.
+create or replace function public.dsa_abandon(p_session_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+begin
+  v_session := public.dsa_require_player(p_session_id, null, true);
+  perform public.dsa_assert_not_over(v_session);
+
+  update public.game_sessions s
+  set status = 'ABANDONED',
+      awaiting = 'NONE',
+      ended_at = now(),
+      pending_prompt_node_id = null,
+      pending_guess = null
+  where s.id = p_session_id;
+
+  insert into public.game_moves (game_session_id, move_type, actor_role, actor_user_id, payload)
+  values (
+    p_session_id, 'SYSTEM', 'SYSTEM', auth.uid(),
+    jsonb_build_object('event', 'ABANDONED', 'by_role', public.dsa_player_role(p_session_id))
+  );
+
+  return public.dsa_state_json(p_session_id);
+end;
+$$;
+
+-- dsa_get_revealed_path -> jsonb
+--   {status, winner, path: [{step_index, node_id, text, answer_label}],
+--    secret: null | {node_id, name, description}}
+-- secret is only filled after DISCOVERED / ABANDONED.
+create or replace function public.dsa_get_revealed_path(p_session_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_session public.game_sessions%rowtype;
+  v_secret  jsonb := null;
+begin
+  v_session := public.dsa_require_player(p_session_id, null, false);
+
+  if v_session.status in ('DISCOVERED', 'ABANDONED') then
+    select jsonb_build_object(
+             'node_id', n.id,
+             'name', n.label,
+             'description', coalesce(c.description, n.description)
+           )
+      into v_secret
+    from public.game_secrets gs
+    join public.graph_nodes n on n.id = gs.secret_node_id
+    left join public.bible_characters c on c.id = coalesce(gs.secret_character_id, n.character_id)
+    where gs.game_session_id = p_session_id;
+  end if;
+
+  return jsonb_build_object(
+    'status', v_session.status,
+    'winner', v_session.winner,
+    'path', public.dsa_path_json(p_session_id),
+    'secret', v_secret
+  );
+end;
+$$;
+
+-- dsa_list_names -> text[]: distinct card names and aliases, no structure.
+create or replace function public.dsa_list_names(p_graph_slug text)
+returns text[]
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_graph_id uuid;
+  v_names    text[];
+begin
+  if auth.uid() is null then
+    raise exception 'DSA_NOT_AUTHENTICATED: sign in first (anonymous sign-in is fine)';
+  end if;
+
+  v_graph_id := public.dsa_graph_for_play(p_graph_slug);
+
+  select coalesce(array_agg(distinct x.name order by x.name), '{}'::text[]) into v_names
+  from (
+    select n.label as name
+    from public.graph_nodes n
+    where n.graph_id = v_graph_id
+      and n.node_type = 'CHARACTER'
+      and n.review_status = 'APPROVED'
+    union
+    select c.name
+    from public.graph_nodes n
+    join public.bible_characters c on c.id = n.character_id
+    where n.graph_id = v_graph_id
+      and n.node_type = 'CHARACTER'
+      and n.review_status = 'APPROVED'
+    union
+    select unnest(c.aliases)
+    from public.graph_nodes n
+    join public.bible_characters c on c.id = n.character_id
+    where n.graph_id = v_graph_id
+      and n.node_type = 'CHARACTER'
+      and n.review_status = 'APPROVED'
+  ) x
+  where nullif(btrim(x.name), '') is not null;
+
+  return v_names;
+end;
+$$;
+
+
+-- #############################################################################
+-- G. Privileges
+-- Supabase grants EXECUTE on new public functions to anon and authenticated
+-- by default, so everything is revoked explicitly first.
+-- #############################################################################
+
+-- Internal: owner (postgres) only.
+revoke all on function public.dsa_normalize(text) from public, anon, authenticated;
+revoke all on function public.dsa_answer_class(text) from public, anon, authenticated;
+revoke all on function public.dsa_prompt_text(text, text, text) from public, anon, authenticated;
+revoke all on function public.dsa_out_edges(uuid, text) from public, anon, authenticated;
+revoke all on function public.dsa_is_ancestor_or_self(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.dsa_playable_characters(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_initial_node(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_prompt_at(uuid, integer) from public, anon, authenticated;
+revoke all on function public.dsa_derive_position(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_current_prompt(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_step_count(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_canonical_label(text, uuid, text) from public, anon, authenticated;
+revoke all on function public.dsa_compute_answer(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_is_correct_name(uuid, text) from public, anon, authenticated;
+revoke all on function public.dsa_ai_tireur_answer(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_ai_decouvreur_action(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_path_json(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_sync_position(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_new_room_code() from public, anon, authenticated;
+revoke all on function public.dsa_require_player(uuid, text, boolean) from public, anon, authenticated;
+revoke all on function public.dsa_assert_not_over(public.game_sessions) from public, anon, authenticated;
+revoke all on function public.dsa_graph_for_play(text) from public, anon, authenticated;
+revoke all on function public.dsa_start_play(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_state_json(uuid) from public, anon, authenticated;
+revoke all on function public.dsa_do_ask(uuid, uuid, boolean) from public, anon, authenticated;
+revoke all on function public.dsa_do_answer(uuid, text, uuid, boolean) from public, anon, authenticated;
+revoke all on function public.dsa_do_guess(uuid, text, uuid, boolean) from public, anon, authenticated;
+revoke all on function public.dsa_do_confirm_guess(uuid, text, uuid, boolean) from public, anon, authenticated;
+revoke all on function public.dsa_do_truncate(uuid, integer, text, text, uuid, boolean, jsonb) from public, anon, authenticated;
+revoke all on function public.dsa_do_go_back(uuid, integer, uuid, boolean) from public, anon, authenticated;
+revoke all on function public.dsa_do_rewind(uuid, integer, uuid, boolean) from public, anon, authenticated;
+
+-- Policy helpers: evaluated inside RLS policies for signed-in users.
+revoke all on function public.dsa_is_admin() from public, anon;
+revoke all on function public.dsa_is_session_player(uuid) from public, anon;
+revoke all on function public.dsa_player_role(uuid) from public, anon;
+grant execute on function public.dsa_is_admin() to authenticated, service_role;
+grant execute on function public.dsa_is_session_player(uuid) to authenticated, service_role;
+grant execute on function public.dsa_player_role(uuid) to authenticated, service_role;
+
+-- RPCs: signed-in users (anonymous sign-ins are `authenticated`).
+revoke all on function public.dsa_create_session(text, text, text, text) from public, anon;
+revoke all on function public.dsa_join_session(text, text) from public, anon;
+revoke all on function public.dsa_get_my_secret(uuid) from public, anon;
+revoke all on function public.dsa_get_state(uuid) from public, anon;
+revoke all on function public.dsa_ask(uuid) from public, anon;
+revoke all on function public.dsa_answer(uuid, text) from public, anon;
+revoke all on function public.dsa_guess(uuid, text) from public, anon;
+revoke all on function public.dsa_confirm_guess(uuid, text) from public, anon;
+revoke all on function public.dsa_go_back(uuid, integer) from public, anon;
+revoke all on function public.dsa_rewind(uuid, integer) from public, anon;
+revoke all on function public.dsa_ai_decouvreur_step(uuid) from public, anon;
+revoke all on function public.dsa_abandon(uuid) from public, anon;
+revoke all on function public.dsa_get_revealed_path(uuid) from public, anon;
+revoke all on function public.dsa_list_names(text) from public, anon;
+
+grant execute on function public.dsa_create_session(text, text, text, text) to authenticated;
+grant execute on function public.dsa_join_session(text, text) to authenticated;
+grant execute on function public.dsa_get_my_secret(uuid) to authenticated;
+grant execute on function public.dsa_get_state(uuid) to authenticated;
+grant execute on function public.dsa_ask(uuid) to authenticated;
+grant execute on function public.dsa_answer(uuid, text) to authenticated;
+grant execute on function public.dsa_guess(uuid, text) to authenticated;
+grant execute on function public.dsa_confirm_guess(uuid, text) to authenticated;
+grant execute on function public.dsa_go_back(uuid, integer) to authenticated;
+grant execute on function public.dsa_rewind(uuid, integer) to authenticated;
+grant execute on function public.dsa_ai_decouvreur_step(uuid) to authenticated;
+grant execute on function public.dsa_abandon(uuid) to authenticated;
+grant execute on function public.dsa_get_revealed_path(uuid) to authenticated;
+grant execute on function public.dsa_list_names(text) to authenticated;

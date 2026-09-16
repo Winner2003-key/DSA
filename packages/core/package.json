@@ -1,0 +1,22 @@
+{
+  "name": "@dsa/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSA core: graph types, game rules, engine, French intent matcher, validator and book transcription parser. Pure TypeScript.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "fixtures": "tsx scripts/build-mini-fixture.ts"
+  },
+  "dependencies": {
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

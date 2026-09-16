@@ -1,0 +1,23 @@
+{
+  "name": "dsa",
+  "private": true,
+  "description": "DSA — Découverte Sans Alphabet",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "scripts"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "book:validate": "tsx scripts/validate-graph/index.ts",
+    "book:import": "tsx scripts/import-book/index.ts",
+    "book:export": "tsx scripts/export-graph/index.ts",
+    "voice:bundle-function": "npm run bundle-function --workspace packages/voice",
+    "mobile": "npm run start --workspace apps/mobile",
+    "admin": "npm run dev --workspace apps/admin"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@dsa/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSA local scripts: book validation, Supabase import and graph export. Run with tsx and the service role key.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "validate": "tsx validate-graph/index.ts",
+    "import": "tsx import-book/index.ts",
+    "export": "tsx export-graph/index.ts"
+  },
+  "dependencies": {
+    "@dsa/core": "*",
+    "@supabase/supabase-js": "^2.58.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

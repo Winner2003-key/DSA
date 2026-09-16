@@ -1,0 +1,195 @@
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+/*
+ * DSA admin — "table de correction".
+ *
+ * The job on this screen is comparing a transcribed page with the printed book
+ * and saying yes or no, for hours. So the chrome is achromatic and quiet, and
+ * saturated colour is reserved for one thing only: review status. If something
+ * on screen is coloured, it is telling you where the work is.
+ *
+ * Two voices: the tool speaks in a grotesque (Archivo), the book speaks in a
+ * serif (Newsreader). Every string that comes out of the book — a question, a
+ * clue, a name — is set in the serif, so transcribed text never reads as UI.
+ */
+
+@theme {
+  --color-paper: #f2f5f7;
+  --color-surface: #ffffff;
+  --color-surface-sunk: #e9eef2;
+  --color-ink: #16202b;
+  --color-ink-soft: #5b6b7b;
+  --color-ink-faint: #8b9aa8;
+  --color-rule: #dae1e7;
+  --color-rule-strong: #c2ccd5;
+
+  --color-accent: #0b6e63;
+  --color-accent-soft: #e2f1ee;
+  --color-accent-ink: #064d45;
+
+  --color-draft: #7c8b9b;
+  --color-draft-soft: #eef2f5;
+  --color-review: #b45309;
+  --color-review-soft: #fdf3e3;
+  --color-approved: #15803d;
+  --color-approved-soft: #e8f5ec;
+  --color-rejected: #b42318;
+  --color-rejected-soft: #fdeceb;
+
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-book: var(--font-newsreader), ui-serif, Georgia, serif;
+
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Counts, page numbers and order indexes line up in columns. */
+  .tabular,
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .field {
+    @apply w-full rounded-sm border border-rule bg-surface px-2 py-1.5 text-ink placeholder:text-ink-faint;
+  }
+
+  .field:focus {
+    @apply border-accent outline-none ring-1 ring-accent;
+  }
+
+  .field-label {
+    @apply mb-1 block text-[11px] font-medium tracking-[0.01em] text-ink-soft;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-sm border border-rule-strong bg-surface px-2.5 py-1.5 font-medium text-ink transition-colors;
+  }
+
+  .btn:hover:not(:disabled) {
+    @apply border-ink-faint bg-surface-sunk;
+  }
+
+  .btn:disabled {
+    @apply cursor-not-allowed border-rule text-ink-faint;
+  }
+
+  .btn-primary {
+    @apply border-accent bg-accent text-white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    @apply border-accent-ink bg-accent-ink;
+  }
+
+  .btn-primary:disabled {
+    @apply border-rule bg-surface-sunk text-ink-faint;
+  }
+
+  .btn-danger {
+    @apply border-rejected/40 text-rejected;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    @apply border-rejected bg-rejected-soft;
+  }
+
+  .panel {
+    @apply border border-rule bg-surface;
+  }
+
+  .book {
+    font-family: var(--font-book);
+  }
+}
+
+/* --- React Flow ---------------------------------------------------------- */
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__node {
+  cursor: pointer;
+}
+
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  background: var(--color-rule-strong);
+  border: 1px solid var(--color-surface);
+}
+
+.react-flow__edge-path {
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.5;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
+.react-flow__edgelabel-renderer .edge-chip {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.react-flow__controls-button {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-rule);
+  fill: var(--color-ink-soft);
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--color-rule);
+}

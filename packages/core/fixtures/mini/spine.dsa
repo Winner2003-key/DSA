@@ -1,0 +1,15 @@
+# Mini graph for the shared rule scenarios (docs/sessions/mini-graph-fixture.md).
+# Build: npm run fixtures --workspace packages/core  (defaultReviewStatus APPROVED)
+
+START DSA
+  DÉBUT -> QUESTION ANCIEN
+    OUI -> QUESTION HOMME
+      OUI -> QUESTION PENTATEUQUE
+        OUI -> CATEGORY PENTATEUQUE (HOMMES)
+        NON -> CATEGORY LES 3 PREMIERS
+        NONONONON {variants: NONONONO@27} -> QUESTION LIVRE DE SAMUEL
+          OUIOUIOUI {variants: OUIOUIOUIOUI@32} -> CATEGORY LIE A DAVID
+          NON -> CATEGORY LES ROIS
+      JE NE SAIS PAS -> CATEGORY LES 3 DERNIERS
+    NON -> QUESTION HOMME
+      OUI -> CATEGORY LES EVANGILES

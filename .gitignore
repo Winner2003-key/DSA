@@ -1,0 +1,27 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.expo/
+dist/
+web-build/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+.DS_Store
+supabase/.branches
+supabase/.temp
+android/
+ios/
+*.apk
+*.aab
+
+
+data
+# Owner decision 2026-09-16 (public repo): the source book itself, its transcription and any document
+# describing or identifying the book (title, author, organisation) are never pushed.
+# Bible names used by the game are fine.
+DIGITIZATION_REPORT.md
+supabase/functions/.env*
