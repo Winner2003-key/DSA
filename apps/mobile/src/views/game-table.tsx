@@ -6,6 +6,7 @@ import { ErrorBanner, GameHeader, PassPhone } from '@/components';
 import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
 import { DecouvreurView } from './decouvreur-view';
+import { DecouvreurWaitingView } from './decouvreur-waiting-view';
 import { TireurReadyView } from './tireur-ready-view';
 import { TireurView } from './tireur-view';
 
@@ -27,15 +28,18 @@ export function GameTable({ sessionId, game }: GameTableProps) {
   if (!state) return null;
 
   const isLocal = state.mode === 'LOCAL';
-  const readyPhase = game.localPhase === 'TIREUR_READY';
+  const readyPhase = game.phase === 'TIREUR_READY';
   // Who must be holding the phone right now.
   const holder: Role | null = isLocal ? (readyPhase ? 'TIREUR' : game.activeRole) : null;
   const mustHandOver = isLocal && holder !== null && handedTo !== holder;
+  // A room device only ever renders its own role's view.
   const viewRole: Role = isLocal ? (holder ?? 'DECOUVREUR') : (game.myRoles[0] ?? 'DECOUVREUR');
 
   let content: React.ReactNode = null;
   if (!mustHandOver) {
-    if (readyPhase) content = <TireurReadyView sessionId={sessionId} game={game} />;
+    if (readyPhase && viewRole === 'TIREUR') content = <TireurReadyView sessionId={sessionId} game={game} />;
+    // A room's Découvreur waits on their own phone while the Tireur looks at the card.
+    else if (readyPhase) content = <DecouvreurWaitingView />;
     else if (viewRole === 'TIREUR') content = <TireurView sessionId={sessionId} game={game} />;
     else content = <DecouvreurView game={game} />;
   }

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import type { Awaiting, Role } from '@dsa/core';
 
 import { getGameService } from '@/services';
 import { DsaError, toDsaError } from '@/services/errors';
 import type { GameService } from '@/services/game-service';
+import { FALLBACK_POLL_MS, type RealtimeStatus } from '@/services/realtime-sync';
 import type { GameState } from '@/services/types';
 import { buildExchanges, pruneGuesses, type Exchange, type GuessRecord } from './exchanges';
 
@@ -15,17 +17,26 @@ export const AI_THINKING_MS = 900;
  * as a separate beat instead of replacing the question in the same frame.
  */
 export const AI_ANSWER_BEAT_MS = 700;
-/** Remote modes are polled until S6 turns on Realtime. */
-const POLL_MS = 2000;
+/**
+ * A room whose push channel has been down this long, or whose last refresh failed
+ * for lack of network, shows "Connexion perdue… reconnexion".
+ */
+export const CONNECTION_LOST_AFTER_MS = 4000;
 /** A stuck AI must not spin forever against a mistaken human Tireur. */
 const MAX_AI_STEPS_IN_A_ROW = 24;
 
 /**
- * LOCAL only (GRAPH_SPECIFICATION §8): the Tireur looks at the card before the
- * first question. It is a client-side step for now; the §9 timer will turn it into
- * the server's thinking phase, which is why it is one named step here.
+ * Where the table is, for every mode:
+ *
+ *   LOBBY         a room waits for its second player (status WAITING)
+ *   TIREUR_READY  the Tireur looks at the card before the first question —
+ *                 LOCAL: a client-side step (GRAPH_SPECIFICATION §8);
+ *                 rooms: the server's `tireur_ready` (dsa_tireur_ready, brief S6).
+ *                 This is the one phase the §9 thinking time will be put on.
+ *   PLAYING       questions and answers
+ *   ENDED         DISCOVERED or ABANDONED
  */
-export type LocalPhase = 'TIREUR_READY' | 'PLAYING';
+export type TablePhase = 'LOBBY' | 'TIREUR_READY' | 'PLAYING' | 'ENDED';
 
 /** Sessions whose Tireur already said "je suis prêt" on this device. */
 const tireurReadySessions = new Set<string>();
@@ -62,9 +73,16 @@ export interface UseGame {
   refusedGuess: string | null;
   /** Every question paired with its own answer, and every refused name call, in order. */
   exchanges: Exchange[];
-  /** LOCAL: `TIREUR_READY` until the Tireur has seen the card. null in other modes. */
-  localPhase: LocalPhase | null;
+  /** null until the first state arrives. */
+  phase: TablePhase | null;
+  /** "C’est bon, je suis prêt": client-side in LOCAL, `dsa_tireur_ready` in a room. */
   confirmTireurReady: () => void;
+  /** A room (HUMAN_VS_HUMAN) that is still open: it is kept in sync over Realtime. */
+  isRoom: boolean;
+  /** The push channel, for a room; null otherwise. */
+  realtimeStatus: RealtimeStatus | null;
+  /** A room lost its connection for a while (channel down, or a refresh failed for lack of network). */
+  connectionLost: boolean;
 
   refresh: () => Promise<void>;
   ask: () => Promise<void>;
@@ -95,6 +113,8 @@ export interface UseGameOptions {
   aiThinkingMs?: number;
   /** Set to 0 in tests: the AI Tireur's answer is shown at once. */
   aiAnswerBeatMs?: number;
+  /** Injected in tests. */
+  connectionLostAfterMs?: number;
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -109,6 +129,7 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   const service = useMemo(() => options.service ?? getGameService(), [options.service]);
   const thinkingMs = options.aiThinkingMs ?? AI_THINKING_MS;
   const answerBeatMs = options.aiAnswerBeatMs ?? AI_ANSWER_BEAT_MS;
+  const lostAfterMs = options.connectionLostAfterMs ?? CONNECTION_LOST_AFTER_MS;
 
   const [state, setState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,11 +140,20 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   const [guesses, setGuesses] = useState<GuessRecord[]>([]);
   const [outgoing, setOutgoing] = useState<Outgoing | null>(null);
   const [tireurReady, setTireurReady] = useState(() => (sessionId ? tireurReadySessions.has(sessionId) : false));
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null);
+  const [channelDown, setChannelDown] = useState(false);
+  const [networkDown, setNetworkDown] = useState(false);
+  const [resubscribeTick, setResubscribeTick] = useState(0);
 
   const mounted = useRef(true);
   const inFlight = useRef(false);
   const aiSteps = useRef(0);
   const latest = useRef<GameState | null>(null);
+  /** A push arrived while an action was in flight: read the state again afterwards. */
+  const refreshAfterAction = useRef(false);
+  /** Responses can arrive out of order; only the newest request's state is kept. */
+  const requestSeq = useRef(0);
+  const acceptedSeq = useRef(0);
 
   /** Stores a new state and notices a name call that just came back refused. */
   const accept = useCallback((next: GameState, calledName: string | null = null) => {
@@ -156,20 +186,50 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
 
   const clearError = useCallback(() => setError(null), []);
 
-  const refresh = useCallback(async () => {
-    if (!sessionId) return;
-    try {
-      const next = await service.getState(sessionId);
-      if (mounted.current) {
-        accept(next);
-        setError(null);
+  /** Keeps a response only if no newer request has already been applied. */
+  const isFresh = (seq: number) => {
+    if (seq < acceptedSeq.current) return false;
+    acceptedSeq.current = seq;
+    return true;
+  };
+
+  /**
+   * Reads the state. A background refresh (push, poll, foreground) reports a lost
+   * network through `connectionLost` rather than as an error banner on every poll.
+   */
+  const load = useCallback(
+    async (background: boolean) => {
+      if (!sessionId) return;
+      const seq = ++requestSeq.current;
+      try {
+        const next = await service.getState(sessionId);
+        if (mounted.current && isFresh(seq)) {
+          accept(next);
+          setError(null);
+          setNetworkDown(false);
+        }
+      } catch (caught) {
+        if (!mounted.current) return;
+        const failure = toDsaError(caught);
+        if (failure.code === 'NETWORK') setNetworkDown(true);
+        if (!background || failure.code !== 'NETWORK') setError(failure);
+      } finally {
+        if (mounted.current) setLoading(false);
       }
-    } catch (caught) {
-      if (mounted.current) setError(toDsaError(caught));
-    } finally {
-      if (mounted.current) setLoading(false);
+    },
+    [accept, service, sessionId],
+  );
+
+  const refresh = useCallback(() => load(false), [load]);
+
+  /** Push, poll and foreground refreshes: never on top of an action in flight. */
+  const pushRefresh = useCallback(() => {
+    if (inFlight.current) {
+      refreshAfterAction.current = true;
+      return;
     }
-  }, [accept, service, sessionId]);
+    void load(true);
+  }, [load]);
 
   useEffect(() => {
     setLoading(true);
@@ -179,6 +239,8 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
     setGuesses([]);
     setOutgoing(null);
     setTireurReady(sessionId ? tireurReadySessions.has(sessionId) : false);
+    setRealtimeStatus(null);
+    setNetworkDown(false);
     aiSteps.current = 0;
     void refresh();
   }, [refresh, sessionId]);
@@ -198,49 +260,84 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
       if (isHumanMove) setRefusedGuess(null);
       if (sent) setOutgoing(sent);
       const startedAt = Date.now();
+      const seq = ++requestSeq.current;
       try {
         const next = await action(sessionId);
         // Only the AI Tireur answers inside the same call; give that answer its own beat.
         if (sent && next.mode === 'AI_TIREUR' && answerBeatMs > 0) {
           await wait(Math.max(0, answerBeatMs - (Date.now() - startedAt)));
         }
-        if (mounted.current) {
+        if (mounted.current && isFresh(seq)) {
           accept(next, calledName);
           setError(null);
+          setNetworkDown(false);
         }
       } catch (caught) {
         if (mounted.current) setError(toDsaError(caught));
         // The server is the source of truth: re-read rather than guess.
-        await refresh();
+        refreshAfterAction.current = false;
+        await load(false);
       } finally {
         inFlight.current = false;
         if (mounted.current) {
           setBusy(false);
           setOutgoing(null);
         }
+        if (refreshAfterAction.current) {
+          refreshAfterAction.current = false;
+          void load(true);
+        }
       }
     },
-    [accept, answerBeatMs, refresh, sessionId],
+    [accept, answerBeatMs, load, sessionId],
   );
 
-  // --- polling -----------------------------------------------------------------
+  // --- keeping a room in sync -----------------------------------------------------
   // Only rooms need it: LOCAL and the AI modes change only through this device.
-  useEffect(() => {
-    if (!sessionId || service.supportsRealtime) return;
-    if (!state || state.status !== 'PLAYING' || state.mode !== 'HUMAN_VS_HUMAN') return;
-    const timer = setInterval(() => {
-      if (!inFlight.current) void refresh();
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [refresh, service, sessionId, state]);
+  const isRoom =
+    state?.mode === 'HUMAN_VS_HUMAN' && (state.status === 'WAITING' || state.status === 'READY' || state.status === 'PLAYING');
 
-  // --- push channel (S6 implements `subscribe`) ---------------------------------
+  // A service without push (none ships today) is polled.
   useEffect(() => {
-    if (!sessionId || !service.subscribe) return;
-    return service.subscribe(sessionId, () => {
-      if (!inFlight.current) void refresh();
+    if (!sessionId || !isRoom || service.supportsRealtime) return;
+    const timer = setInterval(pushRefresh, FALLBACK_POLL_MS);
+    return () => clearInterval(timer);
+  }, [isRoom, pushRefresh, service, sessionId]);
+
+  // Realtime: the subscription debounces events and polls while it is not subscribed.
+  useEffect(() => {
+    if (!sessionId || !isRoom || !service.supportsRealtime || !service.subscribe) {
+      setRealtimeStatus(null);
+      return;
+    }
+    return service.subscribe(sessionId, pushRefresh, (status) => {
+      if (mounted.current) setRealtimeStatus(status);
     });
-  }, [refresh, service, sessionId]);
+  }, [isRoom, pushRefresh, resubscribeTick, service, sessionId]);
+
+  // Back to the foreground: sockets may have been dropped while in the background.
+  useEffect(() => {
+    if (!isRoom) return;
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (previous !== 'active' && next === 'active') {
+        setResubscribeTick((tick) => tick + 1);
+        pushRefresh();
+      }
+      previous = next;
+    });
+    return () => subscription.remove();
+  }, [isRoom, pushRefresh]);
+
+  // "Connexion perdue": the channel has not been subscribed for a while.
+  useEffect(() => {
+    if (!isRoom || realtimeStatus === null || realtimeStatus === 'SUBSCRIBED') {
+      setChannelDown(false);
+      return;
+    }
+    const timer = setTimeout(() => setChannelDown(true), lostAfterMs);
+    return () => clearTimeout(timer);
+  }, [isRoom, lostAfterMs, realtimeStatus]);
 
   // --- AI Découvreur -----------------------------------------------------------
   useEffect(() => {
@@ -272,18 +369,26 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
 
   const exchanges = useMemo(() => buildExchanges(state?.path ?? [], guesses), [guesses, state?.path]);
 
-  // A LOCAL game that already has answers (a reload mid-game) is past the hand-over.
-  const localPhase: LocalPhase | null =
-    state?.mode !== 'LOCAL'
-      ? null
-      : tireurReady || state.path.length > 0 || state.awaiting !== 'QUESTION' || state.status !== 'PLAYING'
-        ? 'PLAYING'
-        : 'TIREUR_READY';
+  let phase: TablePhase | null = null;
+  if (state) {
+    if (state.status === 'WAITING' || state.status === 'READY') phase = 'LOBBY';
+    else if (state.status !== 'PLAYING') phase = 'ENDED';
+    else if (state.mode === 'LOCAL') {
+      // A LOCAL game that already has answers (a reload mid-game) is past the hand-over.
+      const pastHandOver = tireurReady || state.path.length > 0 || state.awaiting !== 'QUESTION';
+      phase = pastHandOver ? 'PLAYING' : 'TIREUR_READY';
+    } else phase = state.tireur_ready ? 'PLAYING' : 'TIREUR_READY';
+  }
 
+  const isLocal = state?.mode === 'LOCAL';
   const confirmTireurReady = useCallback(() => {
-    if (sessionId) tireurReadySessions.add(sessionId);
-    setTireurReady(true);
-  }, [sessionId]);
+    if (isLocal) {
+      if (sessionId) tireurReadySessions.add(sessionId);
+      setTireurReady(true);
+      return;
+    }
+    void run((id) => service.tireurReady(id), true);
+  }, [isLocal, run, service, sessionId]);
 
   return {
     state,
@@ -292,14 +397,17 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
     error,
     clearError,
     myRoles,
-    isLocal: state?.mode === 'LOCAL',
+    isLocal,
     activeRole: state ? roleFor(state.awaiting) : null,
     aiThinking,
     outgoing,
     refusedGuess,
     exchanges,
-    localPhase,
+    phase,
     confirmTireurReady,
+    isRoom,
+    realtimeStatus: isRoom ? realtimeStatus : null,
+    connectionLost: isRoom && (channelDown || networkDown),
     refresh,
     ask: useCallback(
       () =>

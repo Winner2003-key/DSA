@@ -1,0 +1,13 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`says nothing with "Est-ce" in a voice game, on screen or aloud (snapshot): tts-utterances 1`] = `
+[
+  "Oui.",
+  "Je n’ai pas bien compris. Peux-tu répéter ?",
+  "Oui.",
+  "Non.",
+  "Ancien ?",
+  "Homme ?",
+  "Pentateuque ?",
+]
+`;

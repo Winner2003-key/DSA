@@ -25,6 +25,7 @@ import {
   type GameState,
   type JoinedSession,
   type PathEntry,
+  type RematchSession,
   type RevealedPath,
   type Secret,
   type StatePlayer,
@@ -215,6 +216,9 @@ export class OfflineGameService implements GameService {
       path: this.pathOf(state),
       players: OfflineGameService.players(session),
       settings: session.settings ?? { ...DEFAULT_SETTINGS },
+      // Rooms need the server; every offline mode is ready from the start.
+      tireur_ready: true,
+      room_code: session.roomCode,
     };
   }
 
@@ -281,6 +285,17 @@ export class OfflineGameService implements GameService {
       description: character?.description ?? node.description,
       has_homonyms: hasHomonyms(this.index, node.id),
     };
+  }
+
+  async tireurReady(sessionId: string): Promise<GameState> {
+    const session = await this.session(sessionId);
+    this.requireRole(session, 'TIREUR');
+    return this.toState(session);
+  }
+
+  async rematch(): Promise<RematchSession> {
+    // Rooms between two devices need the server.
+    throw new DsaError('WRONG_MODE');
   }
 
   async ask(sessionId: string): Promise<GameState> {

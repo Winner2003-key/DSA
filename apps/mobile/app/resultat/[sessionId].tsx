@@ -1,19 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { speakableName } from '@dsa/voice';
 
 import {
   AppText,
+  ChoiceCard,
   ErrorBanner,
+  LinkButton,
+  NoticeBanner,
   PathGraph,
   PrimaryButton,
   ResultHeader,
   Screen,
   SecondaryButton,
+  Sheet,
   SoundToggle,
   TopBar,
 } from '@/components';
 import { fr } from '@/i18n/fr';
+import { acceptRematch, declineRematch, parseRematchOffer, proposeRematch, roleOnAccept, type RematchOffer } from '@/rooms/rematch';
+import { useRoom } from '@/rooms/use-room';
 import { getGameService } from '@/services';
 import { toDsaError, type DsaError } from '@/services/errors';
 import { cardDescription, type GameState, type RevealedPath } from '@/services/types';
@@ -30,6 +37,9 @@ export default function ResultatScreen() {
   const [reveal, setReveal] = useState<RevealedPath | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   const [error, setError] = useState<DsaError | null>(null);
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [offer, setOffer] = useState<RematchOffer | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -53,13 +63,68 @@ export default function ResultatScreen() {
   const secret = reveal?.secret ?? null;
 
   useEffect(() => {
-    if (discovered && secret) speak(fr.spoken.discovered(secret.name));
+    if (discovered && secret) speak(fr.spoken.discovered(speakableName(secret.name)));
   }, [discovered, secret, speak]);
 
   const graphName = useMemo(
     () => (secret && discovered ? { name: secret.name, description: cardDescription(secret) } : null),
     [discovered, secret],
   );
+
+  // A room stays joined here, so "Rejouer" can reach the other phone.
+  const isRoom = state?.mode === 'HUMAN_VS_HUMAN';
+  const me = isRoom ? (state?.players.find((p) => p.is_me && !p.is_ai) ?? null) : null;
+  const room = useRoom(isRoom ? (state?.room_code ?? null) : null, me ? { role: me.role, name: me.display_name } : null, {
+    onBroadcast: (event, payload) => {
+      if (event !== 'rematch' || !sessionId) return;
+      const parsed = parseRematchOffer(payload, sessionId);
+      if (parsed) setOffer(parsed);
+    },
+  });
+
+  const goToRoom = useCallback(
+    (id: string, query = '') => {
+      router.replace(`/partie/${id}${query}`);
+    },
+    [router],
+  );
+
+  const replayRoom = async (swap: boolean) => {
+    if (!sessionId || !me || starting) return;
+    setStarting(true);
+    setError(null);
+    try {
+      const next = await proposeRematch(getGameService(), room.handle, sessionId, swap, {
+        role: me.role,
+        name: me.display_name,
+      });
+      setReplayOpen(false);
+      goToRoom(next.sessionId, `?revanche=${sessionId}&ancien=${state?.room_code ?? ''}`);
+    } catch (caught) {
+      setError(toDsaError(caught));
+      setStarting(false);
+    }
+  };
+
+  const accept = async () => {
+    if (!offer || starting) return;
+    setStarting(true);
+    setError(null);
+    try {
+      const next = await acceptRematch(getGameService(), offer);
+      goToRoom(next.sessionId);
+    } catch (caught) {
+      setError(toDsaError(caught));
+      setStarting(false);
+      setOffer(null);
+    }
+  };
+
+  const decline = () => {
+    if (!offer) return;
+    void declineRematch(room.handle, offer, me?.display_name ?? null);
+    setOffer(null);
+  };
 
   if (!sessionId) {
     return (
@@ -69,6 +134,9 @@ export default function ResultatScreen() {
       </Screen>
     );
   }
+
+  const myRoleLabel = me ? fr.roles[me.role] : '';
+  const otherRoleLabel = me ? fr.roles[me.role === 'TIREUR' ? 'DECOUVREUR' : 'TIREUR'] : '';
 
   return (
     <Screen
@@ -85,9 +153,12 @@ export default function ResultatScreen() {
           <PrimaryButton
             testID="replay"
             label={fr.result.replay}
-            disabled={!state}
-            // A new game always goes through "Préparer la partie", with this game's mode ready.
-            onPress={() => router.replace(state ? `/jouer?mode=${state.mode}` : '/jouer')}
+            disabled={!state || starting}
+            onPress={() => {
+              if (isRoom && me) setReplayOpen(true);
+              // A new solo game always goes through "Préparer la partie", with this game's mode ready.
+              else router.replace(state ? `/jouer?mode=${state.mode}` : '/jouer');
+            }}
             style={{ flex: 1.4, width: undefined }}
           />
         </View>
@@ -96,6 +167,37 @@ export default function ResultatScreen() {
       <TopBar onBack={() => router.replace('/')} backLabel={fr.app.home} right={<SoundToggle />} />
 
       {error ? <ErrorBanner message={error.message} onDismiss={() => setError(null)} /> : null}
+
+      {offer && me ? (
+        <View style={{ marginBottom: theme.space.sm }}>
+          <NoticeBanner
+            testID="rematch-offer"
+            title={fr.rematch.offer(offer.fromName)}
+            hint={
+              offer.swap
+                ? fr.rematch.offerSwap(fr.roles[roleOnAccept(offer)])
+                : fr.rematch.offerSame(fr.roles[roleOnAccept(offer)])
+            }
+          >
+            <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+              <SecondaryButton
+                testID="rematch-decline"
+                label={fr.rematch.decline}
+                disabled={starting}
+                onPress={decline}
+                style={{ flex: 1, width: undefined }}
+              />
+              <PrimaryButton
+                testID="rematch-accept"
+                label={fr.rematch.accept}
+                disabled={starting}
+                onPress={() => void accept()}
+                style={{ flex: 1.4, width: undefined }}
+              />
+            </View>
+          </NoticeBanner>
+        </View>
+      ) : null}
 
       {!reveal && !error ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: theme.space.sm }}>
@@ -115,6 +217,49 @@ export default function ResultatScreen() {
           <PathGraph path={reveal.path} name={graphName} animate testID="result-graph" />
         </View>
       ) : null}
+
+      <Sheet
+        visible={replayOpen}
+        title={fr.rematch.title}
+        hint={fr.rematch.hint}
+        onClose={() => setReplayOpen(false)}
+        testID="rematch-sheet"
+      >
+        <View accessibilityRole="radiogroup" style={{ gap: theme.space.sm }}>
+          <ChoiceCard
+            testID="rematch-same"
+            title={fr.rematch.same}
+            hint={fr.rematch.sameHint(myRoleLabel)}
+            selected={false}
+            disabled={starting}
+            onPress={() => void replayRoom(false)}
+          />
+          <ChoiceCard
+            testID="rematch-swap"
+            title={fr.rematch.swap}
+            hint={fr.rematch.swapHint(otherRoleLabel)}
+            selected={false}
+            disabled={starting}
+            onPress={() => void replayRoom(true)}
+          />
+          {starting ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space.sm }}>
+              <ActivityIndicator color={theme.colors.brass} />
+              <AppText variant="small" tone="soft">
+                {fr.rematch.creating}
+              </AppText>
+            </View>
+          ) : null}
+          <LinkButton
+            testID="rematch-solo"
+            label={fr.rematch.newGame}
+            onPress={() => {
+              setReplayOpen(false);
+              router.replace('/jouer');
+            }}
+          />
+        </View>
+      </Sheet>
     </Screen>
   );
 }

@@ -1,8 +1,10 @@
+import type { RealtimeStatus } from './realtime-sync';
 import type {
   CreateSessionOptions,
   CreatedSession,
   GameState,
   JoinedSession,
+  RematchSession,
   RevealedPath,
   Secret,
 } from './types';
@@ -20,8 +22,8 @@ export interface GameService {
   readonly offline: boolean;
 
   /**
-   * True when the service pushes changes by itself. While it is false the hook
-   * polls for the modes that need remote updates. S6 flips this on with Realtime.
+   * True when the service pushes changes by itself (`subscribe`). While it is false
+   * the hook polls the modes that need remote updates.
    */
   readonly supportsRealtime: boolean;
 
@@ -32,6 +34,8 @@ export interface GameService {
   /** TIREUR only. A Découvreur screen must never call this. */
   getMySecret(sessionId: string): Promise<Secret>;
 
+  /** TIREUR: "Je suis prêt" in a room — the Découvreur may ask from now on. */
+  tireurReady(sessionId: string): Promise<GameState>;
   ask(sessionId: string): Promise<GameState>;
   answer(sessionId: string, answerLabel: string): Promise<GameState>;
   guess(sessionId: string, name: string): Promise<GameState>;
@@ -41,14 +45,20 @@ export interface GameService {
   aiDecouvreurStep(sessionId: string): Promise<GameState>;
   abandon(sessionId: string): Promise<GameState>;
 
+  /**
+   * "Rejouer" at the end of a room. The first call creates the new room (keeping
+   * or swapping the caller's role); the other player's call joins that same room.
+   */
+  rematch(sessionId: string, swapRoles: boolean): Promise<RematchSession>;
+
   getRevealedPath(sessionId: string): Promise<RevealedPath>;
   listNames(graphSlug: string): Promise<string[]>;
 
   /**
-   * Optional push channel. Returns an unsubscribe function. The default
-   * implementations return a no-op; S6 implements it with `postgres_changes` on
-   * `game_sessions` / `game_moves` / `game_players` and calls back with no
-   * arguments so the hook refetches through `getState`.
+   * Push channel for one session. `onChange` is called (debounced, with no payload)
+   * whenever the session, its players or its moves change, so the hook refetches
+   * through `getState`. `onStatus` reports the channel; while it is not
+   * `SUBSCRIBED` the subscription polls instead. Returns the unsubscribe function.
    */
-  subscribe?(sessionId: string, onChange: () => void): () => void;
+  subscribe?(sessionId: string, onChange: () => void, onStatus?: (status: RealtimeStatus) => void): () => void;
 }

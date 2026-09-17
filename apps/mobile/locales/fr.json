@@ -1,4 +1,6 @@
 {
   "CFBundleDisplayName": "DSA",
-  "CFBundleName": "DSA"
+  "CFBundleName": "DSA",
+  "NSCameraUsageDescription": "DSA utilise la caméra pour scanner le QR code d’une partie.",
+  "NSMicrophoneUsageDescription": "DSA utilise le micro pour jouer à voix haute."
 }

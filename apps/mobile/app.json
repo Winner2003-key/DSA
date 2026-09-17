@@ -18,7 +18,9 @@
       "supportsTablet": true,
       "infoPlist": {
         "CFBundleDevelopmentRegion": "fr",
-        "CFBundleLocalizations": ["fr"]
+        "CFBundleLocalizations": [
+          "fr"
+        ]
       }
     },
     "android": {
@@ -46,10 +48,26 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0E1A17",
-          "dark": { "backgroundColor": "#0E1A17" },
+          "dark": {
+            "backgroundColor": "#0E1A17"
+          },
           "image": "./assets/splash-icon.png",
           "imageWidth": 160,
           "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "DSA utilise la caméra pour scanner le QR code d’une partie."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "DSA utilise le micro pour jouer à voix haute.",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false
         }
       ]
     ],

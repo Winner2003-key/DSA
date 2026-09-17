@@ -17,7 +17,7 @@ export interface GameHeaderProps {
 export function turnOf(game: UseGame): Role | null {
   const { state } = game;
   if (!state || state.status !== 'PLAYING') return null;
-  if (game.localPhase === 'TIREUR_READY') return 'TIREUR';
+  if (game.phase === 'TIREUR_READY') return 'TIREUR';
   if (game.outgoing) return 'TIREUR';
   return game.activeRole;
 }

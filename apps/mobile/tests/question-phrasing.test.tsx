@@ -60,7 +60,8 @@ it('shows and speaks the Découvreur\'s next question as "LABEL ?"', async () =>
   expect(JSON.stringify(screen.toJSON())).not.toMatch(EST_CE);
 
   await waitFor(() => expect(spoken().length).toBeGreaterThan(0));
-  expect(spoken().some((text) => text.includes(asQuestion('HOMME')))).toBe(true);
+  // Spoken in its speakable form (§10): the screen keeps the book spelling.
+  expect(spoken().some((text) => text.includes('Homme ?'))).toBe(true);
   expect(spoken().filter((text) => EST_CE.test(text))).toEqual([]);
 });
 
@@ -75,7 +76,7 @@ it('shows and speaks the Tireur\'s incoming question and name call without "Est-
   const screen = await renderWithProviders(<TireurView sessionId={sessionId} game={result.current} />);
   expect(screen.getByTestId('incoming-question-text')).toHaveTextContent(/^ANCIEN\s\?$/);
   expect(JSON.stringify(screen.toJSON())).not.toMatch(EST_CE);
-  await waitFor(() => expect(spoken()).toContain(asQuestion('ANCIEN')));
+  await waitFor(() => expect(spoken()).toContain('Ancien ?'));
 
   const calling: UseGame = {
     ...result.current,
@@ -83,6 +84,6 @@ it('shows and speaks the Tireur\'s incoming question and name call without "Est-
   };
   await screen.rerender(<TireurView sessionId={sessionId} game={calling} />);
   expect(screen.getByTestId('incoming-guess-text')).toHaveTextContent('ABSALOM');
-  await waitFor(() => expect(spoken()).toContain(asQuestion('ABSALOM')));
+  await waitFor(() => expect(spoken()).toContain('Absalom ?'));
   expect(spoken().filter((text) => EST_CE.test(text))).toEqual([]);
 });

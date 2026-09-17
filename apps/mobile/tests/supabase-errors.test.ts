@@ -50,6 +50,9 @@ const SERVER_CODES = [
   'ROOM_CODE_EXHAUSTED',
   'ROOM_NOT_FOUND',
   'ROOM_FULL',
+  'TIREUR_NOT_READY',
+  'WAITING_FOR_PLAYER',
+  'GAME_NOT_OVER',
 ] as const;
 
 describe('SupabaseGameService error mapping', () => {
@@ -196,6 +199,8 @@ describe('SupabaseGameService call shapes', () => {
       path: [],
       players: [],
       settings: { input_mode: 'BUTTONS' },
+      tireur_ready: true,
+      room_code: null,
     });
   });
 });

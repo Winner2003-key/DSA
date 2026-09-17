@@ -41,6 +41,9 @@ export type {
   TranscriptReading,
 } from './answer-decision';
 
+export { FREE_TALK_MAX_MS, FREE_TALK_SILENCE_MS, detectEndOfSpeech } from './endpoint';
+export type { EndOfSpeech, EndOfSpeechOptions } from './endpoint';
+
 export { LEXICON_FR } from './lexicon.fr';
 export type { PronunciationLexicon } from './lexicon.fr';
 export { cardinalFr, ordinalFr, readOrdinalToken } from './numbers.fr';

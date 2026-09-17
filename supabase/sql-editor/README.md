@@ -18,7 +18,20 @@ These are the files the owner pastes into the hosted Supabase dashboard (**SQL E
 | Order | File | What it does | Run again? |
 |---|---|---|---|
 | 1 | `03_game_ux.sql` | Same content as `migrations/0006_game_ux.sql` | Yes |
-| 2 | `90_tests.sql` | Checks everything, including the new block 13 | Yes | The full step-by-step setup is in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#setup-in-the-supabase-dashboard).
+| 2 | `90_tests.sql` | Checks everything, including the new block 13 | Yes |
+
+`04_voice.sql` adds the voice rate limit (see `VOICE.md`; tests in `94_voice_tests.sql`).
+
+`05_rooms.sql` brings a project up to date with the rooms update (two phones: the Tireur-ready phase, stale-room cleanup, rematch). Run it after `03` (it stops with a clear message if `03` is missing), then run `90_tests.sql` again and expect `ALL DSA TESTS PASSED`. It is safe to run more than once, and a new project doesn't need it: the regenerated `00` contains it. The new `90` refuses to run on a project that skipped `05`.
+
+| Order | File | What it does | Run again? |
+|---|---|---|---|
+| 1 | `05_rooms.sql` | Same content as `migrations/0008_rooms.sql` | Yes |
+| 2 | `90_tests.sql` | Checks everything, including the new block 14 (rooms) | Yes |
+
+The optional hourly stale-room cleanup (pg_cron) is described in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#stale-rooms-0008).
+
+The full step-by-step setup is in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#setup-in-the-supabase-dashboard).
 
 ## Tips
 
@@ -34,4 +47,4 @@ These are the files the owner pastes into the hosted Supabase dashboard (**SQL E
 bash supabase/sql-editor/build.sh
 ```
 
-Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql` is `0006_game_ux.sql` with an owner-facing header; keep the two identical when either changes.
+Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql`, `04_voice.sql` and `05_rooms.sql` are `0006`, `0007` and `0008` with an owner-facing header; keep each pair identical when either changes.

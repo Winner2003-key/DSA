@@ -50,6 +50,14 @@ export interface GameState {
   path: PathEntry[];
   players: StatePlayer[];
   settings: GameSettings;
+  /**
+   * False only while a room's Tireur is still looking at the card (`dsa_tireur_ready`
+   * not called yet). Every other mode is ready from creation. The §9 thinking time
+   * will run during exactly this phase.
+   */
+  tireur_ready: boolean;
+  /** `DSA-1234`. The lobby shows it, and the room's Realtime channel is `room:<code>`. */
+  room_code: string | null;
 }
 
 export interface Secret {
@@ -100,6 +108,13 @@ export interface CreatedSession {
 
 export interface JoinedSession {
   sessionId: string;
+  role: Role;
+}
+
+/** `dsa_rematch`: the new room of "Rejouer", and this player's role in it. */
+export interface RematchSession {
+  sessionId: string;
+  roomCode: string;
   role: Role;
 }
 

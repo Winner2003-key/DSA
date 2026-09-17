@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { answerClass } from '@dsa/core';
+import { speakableAnswer, speakablePrompt } from '@dsa/voice';
 
 import {
   AppText,
@@ -20,6 +20,7 @@ import { useNames } from '@/state/use-names';
 import type { UseGame } from '@/state/use-game';
 import { useSpeech } from '@/speech/use-speech';
 import { useTheme } from '@/theme';
+import { DecouvreurVoice, isVoiceGame } from './voice-play';
 
 export interface DecouvreurViewProps {
   game: UseGame;
@@ -71,23 +72,29 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
   const deadEnd = state?.dead_end ?? false;
   const pendingGuess = state?.pending_guess ?? null;
 
+  const voice = isVoiceGame(game);
+
   // The answer, then what comes next, as one utterance: this game is heard before it is read.
+  // With Voix the Découvreur says the questions, so the phone only answers — like the
+  // person across the table ("Ancien ?" → "Oui.").
   const spoken = useRef('');
   useEffect(() => {
     if (status !== 'PLAYING' || awaiting !== 'QUESTION' || outgoing) return;
     const parts: string[] = [];
     if (latest && freshKey === latest.key) {
-      const word = fr.spoken[answerClass(latest.answerLabel)];
+      const word = speakableAnswer(latest.answerLabel);
       if (word) parts.push(word);
     }
-    if (prompt) parts.push(fr.spoken.question(prompt.text));
+    if (prompt && !voice) parts.push(speakablePrompt(prompt.text));
     else if (deadEnd) parts.push(fr.spoken.deadEnd);
     const utterance = parts.join(' ');
-    if (utterance !== '' && utterance !== spoken.current) {
-      spoken.current = utterance;
+    // Keyed by the exchange too: two answers in a row can be the same "Oui.".
+    const said = `${latest && freshKey === latest.key ? latest.key : ''}|${utterance}`;
+    if (utterance !== '' && said !== spoken.current) {
+      spoken.current = said;
       speak(utterance);
     }
-  }, [awaiting, deadEnd, freshKey, latest, outgoing, prompt, speak, status]);
+  }, [awaiting, deadEnd, freshKey, latest, outgoing, prompt, speak, status, voice]);
 
   if (!state) return null;
 
@@ -227,6 +234,8 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
       ) : null}
 
       {turnCard}
+
+      {voice ? <DecouvreurVoice game={game} names={names} onChooseStep={() => setStepPickerOpen(true)} /> : null}
 
       {state.path.length > 0 ? (
         <LinkButton testID="see-path" label={fr.conversation.seePath} onPress={() => setPathOpen(true)} />

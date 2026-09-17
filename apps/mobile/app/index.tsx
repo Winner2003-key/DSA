@@ -2,7 +2,7 @@ import React from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { AppText, Chip, OfflineBadge, PrimaryButton, Screen, SecondaryButton, SoundToggle, TopBar } from '@/components';
+import { AppText, Chip, LinkButton, OfflineBadge, PrimaryButton, Screen, SecondaryButton, SoundToggle, TopBar } from '@/components';
 import { fr } from '@/i18n/fr';
 import { OFFLINE_ENABLED } from '@/services';
 import { useTheme, useThemePreference } from '@/theme';
@@ -33,16 +33,12 @@ export default function AccueilScreen() {
         <View style={{ gap: theme.space.sm }}>
           <PrimaryButton testID="home-play" label={fr.home.play} onPress={() => router.push('/jouer')} />
 
-          <View style={{ gap: theme.space.xxs }}>
-            <SecondaryButton
-              testID="home-friend"
-              label={fr.home.playWithFriend}
-              hint={fr.home.friendHint}
-              disabled
-              onPress={() => undefined}
-            />
-            <SoonNote />
-          </View>
+          <SecondaryButton
+            testID="home-friend"
+            label={fr.home.playWithFriend}
+            hint={fr.home.friendHint}
+            onPress={() => router.push('/ami')}
+          />
 
           <View style={{ gap: theme.space.xxs }}>
             <SecondaryButton
@@ -56,6 +52,8 @@ export default function AccueilScreen() {
           </View>
         </View>
       </View>
+
+      <LinkButton testID="home-voice-settings" label={fr.voice.settingsLink} onPress={() => router.push('/voix')} />
 
       <View style={{ flexDirection: 'row', gap: theme.space.xs, paddingBottom: theme.space.lg }}>
         <Chip

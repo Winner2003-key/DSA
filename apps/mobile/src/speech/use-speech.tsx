@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { textToSpeech, type SpeakOptions } from './tts';
@@ -11,6 +11,11 @@ interface SpeechContextValue {
   toggleMuted: () => void;
   speak: (text: string, options?: SpeakOptions) => void;
   stop: () => void;
+  /**
+   * The microphone is open: nothing is spoken (the mic would hear the phone). The
+   * last utterance asked for meanwhile is spoken once the microphone closes.
+   */
+  setListening: (listening: boolean) => void;
 }
 
 const SpeechContext = createContext<SpeechContextValue>({
@@ -19,10 +24,13 @@ const SpeechContext = createContext<SpeechContextValue>({
   toggleMuted: () => undefined,
   speak: () => undefined,
   stop: () => undefined,
+  setListening: () => undefined,
 });
 
 export function SpeechProvider({ children }: { children: React.ReactNode }) {
   const [muted, setMuted] = useState(false);
+  const listening = useRef(false);
+  const heldBack = useRef<{ text: string; options?: SpeakOptions } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,9 +60,23 @@ export function SpeechProvider({ children }: { children: React.ReactNode }) {
       toggleMuted,
       speak: (text, options) => {
         if (muted) return;
+        if (listening.current) {
+          heldBack.current = { text, options };
+          return;
+        }
         void textToSpeech.speak(text, options);
       },
       stop: () => textToSpeech.stop(),
+      setListening: (next) => {
+        listening.current = next;
+        if (next) {
+          textToSpeech.stop();
+          return;
+        }
+        const pending = heldBack.current;
+        heldBack.current = null;
+        if (pending && !muted) void textToSpeech.speak(pending.text, pending.options);
+      },
     }),
     [muted, toggleMuted],
   );

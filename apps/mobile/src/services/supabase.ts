@@ -59,3 +59,16 @@ export function resetSupabaseForTests(): void {
   client = null;
   signInPromise = null;
 }
+
+/**
+ * Realtime checks RLS with the player's own token (postgres_changes on the game
+ * tables only reach players of the session), so sign in and hand the current
+ * token to the Realtime client before opening any channel.
+ */
+export async function ensureRealtimeAuth(): Promise<SupabaseClient> {
+  await ensureSignedIn();
+  const supabase = getSupabase();
+  await supabase.realtime.setAuth();
+  return supabase;
+}
+

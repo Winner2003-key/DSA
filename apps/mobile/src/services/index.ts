@@ -30,6 +30,7 @@ export function isPlayable(): boolean {
 }
 
 export * from './types';
+export type { RealtimeStatus } from './realtime-sync';
 export * from './errors';
 export type { GameService } from './game-service';
 export { OfflineGameService } from './offline-game-service';

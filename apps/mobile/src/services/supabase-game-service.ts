@@ -1,6 +1,7 @@
 import type { GameService } from './game-service';
 import { DsaError, toDsaError } from './errors';
-import { ensureSignedIn, getSupabase } from './supabase';
+import { createGameSubscription, type OpenChannel, type RealtimeStatus } from './realtime-sync';
+import { ensureRealtimeAuth, ensureSignedIn, getSupabase } from './supabase';
 import {
   DEFAULT_SETTINGS,
   type CreateSessionOptions,
@@ -10,6 +11,7 @@ import {
   type GameStats,
   type JoinedSession,
   type PathEntry,
+  type RematchSession,
   type RevealedPath,
   type Secret,
   type StatePlayer,
@@ -32,6 +34,48 @@ export interface SupabaseGameServiceOptions {
   client?: RpcClient;
   /** Runs before every call. Defaults to anonymous sign-in. */
   ensureAuth?: () => Promise<void>;
+  /** Opens the push channel of one session. Defaults to Supabase Realtime (tests inject a fake). */
+  openChannel?: (sessionId: string) => OpenChannel;
+}
+
+let channelCounter = 0;
+
+/**
+ * `postgres_changes` on the three published game tables, filtered to one session.
+ * Realtime applies the SELECT policies, so only players of the session get events.
+ * Each subscription gets its own topic: supabase-js hands back an existing channel
+ * with the same topic, which would still be closing after a resubscribe.
+ */
+export function supabaseGameChannel(sessionId: string): OpenChannel {
+  return ({ onEvent, onStatus }) => {
+    let closed = false;
+    let remove: (() => void) | null = null;
+
+    ensureRealtimeAuth()
+      .then((supabase) => {
+        if (closed) return;
+        channelCounter += 1;
+        const channel = supabase
+          .channel(`game:${sessionId}:${channelCounter}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_sessions', filter: `id=eq.${sessionId}` }, onEvent)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_moves', filter: `game_session_id=eq.${sessionId}` }, onEvent)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'game_players', filter: `game_session_id=eq.${sessionId}` }, onEvent)
+          .subscribe((status) => onStatus(status as Parameters<typeof onStatus>[0]));
+        remove = () => {
+          void supabase.removeChannel(channel);
+        };
+      })
+      .catch(() => {
+        if (!closed) onStatus('CHANNEL_ERROR');
+      });
+
+    return {
+      close: () => {
+        closed = true;
+        remove?.();
+      },
+    };
+  };
 }
 
 /** Row shapes returned by the table-returning RPCs. */
@@ -91,15 +135,21 @@ function asSecret(raw: Partial<SecretRow> | null | undefined): Secret | null {
 
 export class SupabaseGameService implements GameService {
   readonly offline = false;
-  /** S6 replaces this with a Realtime subscription. */
-  readonly supportsRealtime = false;
+  readonly supportsRealtime = true;
 
   private readonly injectedClient: RpcClient | null;
   private readonly ensureAuth: () => Promise<void>;
+  private readonly openChannel: (sessionId: string) => OpenChannel;
 
   constructor(options: SupabaseGameServiceOptions = {}) {
     this.injectedClient = options.client ?? null;
     this.ensureAuth = options.ensureAuth ?? ensureSignedIn;
+    this.openChannel = options.openChannel ?? supabaseGameChannel;
+  }
+
+  subscribe(sessionId: string, onChange: () => void, onStatus?: (status: RealtimeStatus) => void): () => void {
+    const subscription = createGameSubscription({ open: this.openChannel(sessionId), onChange, onStatus });
+    return () => subscription.close();
   }
 
   private client(): RpcClient {
@@ -146,6 +196,9 @@ export class SupabaseGameService implements GameService {
       path: asPath(raw.path),
       players: (raw.players ?? []) as StatePlayer[],
       settings: asSettings(raw.settings),
+      // A server that predates 05_rooms.sql has no ready phase: treat it as ready.
+      tireur_ready: raw.tireur_ready !== false,
+      room_code: typeof raw.room_code === 'string' ? raw.room_code : null,
     };
   }
 
@@ -179,6 +232,19 @@ export class SupabaseGameService implements GameService {
     const row = asSecret(SupabaseGameService.firstRow<SecretRow>(data, 'dsa_get_my_secret'));
     if (!row) throw new DsaError('UNKNOWN', 'dsa_get_my_secret returned an unreadable row');
     return row;
+  }
+
+  async tireurReady(sessionId: string): Promise<GameState> {
+    return SupabaseGameService.asState(await this.call('dsa_tireur_ready', { p_session_id: sessionId }));
+  }
+
+  async rematch(sessionId: string, swapRoles: boolean): Promise<RematchSession> {
+    const data = await this.call('dsa_rematch', { p_session_id: sessionId, p_swap_roles: swapRoles });
+    const row = SupabaseGameService.firstRow<{ session_id: string; room_code: string; role: 'TIREUR' | 'DECOUVREUR' }>(
+      data,
+      'dsa_rematch',
+    );
+    return { sessionId: row.session_id, roomCode: row.room_code, role: row.role };
   }
 
   async ask(sessionId: string): Promise<GameState> {

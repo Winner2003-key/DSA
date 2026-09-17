@@ -55,6 +55,8 @@ function leakyState(): GameState {
     secret: { node_id: SECRET_NODE_ID, name: SECRET_NAME, description: SECRET_DESCRIPTION },
     secret_node_id: SECRET_NODE_ID,
     settings: { input_mode: 'BUTTONS' },
+    tireur_ready: true,
+    room_code: 'DSA-1234',
   };
   return state as unknown as GameState;
 }
@@ -76,6 +78,12 @@ class FakeService implements GameService {
   async getMySecret(sessionId: string): Promise<Secret> {
     this.secretCalls.push(sessionId);
     return { node_id: SECRET_NODE_ID, name: SECRET_NAME, description: SECRET_DESCRIPTION, has_homonyms: true };
+  }
+  async tireurReady() {
+    return leakyState();
+  }
+  async rematch() {
+    return { sessionId: 's2', roomCode: 'DSA-5678', role: 'TIREUR' as const };
   }
   async ask() {
     return leakyState();

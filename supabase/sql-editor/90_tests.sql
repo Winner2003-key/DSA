@@ -11,7 +11,8 @@
 -- Scenarios 1–12 come from docs/sessions/mini-graph-fixture.md; the extra
 -- blocks cover HUMAN_VS_HUMAN create/join, room codes, DSA_ROOM_FULL, the AI
 -- Tireur auto-answers and the error codes. Block 13 covers 0006 (game UX:
--- homonyms, path fields, stats, session settings).
+-- homonyms, path fields, stats, session settings). Block 14 covers 0008
+-- (rooms: Tireur ready, stale-room cleanup, rematch).
 --
 -- Users are simulated like PostgREST does it: role `authenticated` plus
 -- request.jwt.claims. The secret of a session is forced as the postgres role
@@ -31,6 +32,10 @@ begin
   if to_regprocedure('public.dsa_create_session(text,text,text,text,jsonb)') is null
      or to_regprocedure('public.dsa_has_homonyms(uuid)') is null then
     raise exception 'DSA TEST SETUP: this project predates the game UX update; run 03_game_ux.sql (or the new 00_all_migrations.sql) first';
+  end if;
+  if to_regprocedure('public.dsa_tireur_ready(uuid)') is null
+     or to_regprocedure('public.dsa_rematch(uuid,boolean)') is null then
+    raise exception 'DSA TEST SETUP: this project predates the rooms update; run 05_rooms.sql (or the new 00_all_migrations.sql) first';
   end if;
   if not exists (select 1 from public.graphs where slug = 'mini') then
     raise exception 'DSA TEST SETUP: run 01_seed_mini_graph.sql first';
@@ -978,6 +983,17 @@ begin
   perform dsa_test.as_user(d);
   perform public.dsa_join_session(v_code);
 
+  ---- 0008: the Tireur looks at the card first; nothing about it reaches the Découvreur
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'tireur_ready before "Je suis prêt"', st->>'tireur_ready', 'false');
+  perform dsa_test.check(c, position(v_secret::text in st::text) = 0, 'secret node id leaked in the ready phase');
+  perform dsa_test.check(c, position('CAÏN' in st::text) = 0, 'secret name leaked in the ready phase');
+  perform dsa_test.as_user(t);
+  st := public.dsa_tireur_ready(s);
+  perform dsa_test.eq(c, 'tireur_ready after "Je suis prêt"', st->>'tireur_ready', 'true');
+  perform dsa_test.check(c, position('CAÏN' in st::text) = 0, 'secret name leaked in dsa_tireur_ready');
+  perform dsa_test.as_user(d);
+
   ---- the Découvreur cannot read the secret
   select count(*) into v_n from public.game_secrets;
   perform dsa_test.eq(c, 'game_secrets rows visible to the Découvreur', v_n::text, '0');
@@ -1263,6 +1279,293 @@ begin
     'anon must not execute dsa_get_my_secret');
   perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_has_homonyms(uuid)', 'execute'),
     'dsa_has_homonyms must stay internal');
+end;
+$$;
+
+
+-- =============================================================================
+-- 14. Rooms (0008): the Tireur is ready first, stale rooms, rematch
+-- =============================================================================
+do $$
+declare
+  c        constant text := '14 rooms: Tireur ready';
+  t        uuid := dsa_test.u(1);
+  d        uuid := dsa_test.u(2);
+  x        uuid := dsa_test.u(3);
+  s        uuid;
+  v_code   text;
+  v_secret uuid := dsa_test.nid('P/lie-a-adam/classe-1/le-meurtrier--cain');
+  v_n      integer;
+  st       jsonb;
+begin
+  s := dsa_test.new_session(t, 'HUMAN_VS_HUMAN', 'TIREUR', 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'WAITING: tireur_ready', st->>'tireur_ready', 'false');
+  perform dsa_test.check(c, st->>'room_code' ~ '^DSA-[0-9]{4}$', 'room_code in the state, got ' || coalesce(st->>'room_code', 'null'));
+  v_code := st->>'room_code';
+
+  -- before the Découvreur is there, the Tireur cannot end the phase
+  perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_WAITING_FOR_PLAYER');
+
+  perform dsa_test.as_user(d);
+  perform public.dsa_join_session(v_code, 'Bill');
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'joined: status', st->>'status', 'PLAYING');
+  perform dsa_test.eq(c, 'joined: tireur_ready', st->>'tireur_ready', 'false');
+  perform dsa_test.eq(c, 'joined: room_code', st->>'room_code', v_code);
+  perform dsa_test.eq(c, 'joined: awaiting', st->>'awaiting', 'QUESTION');
+  perform dsa_test.check(c, position(v_secret::text in st::text) = 0, 'secret node id leaked while not ready');
+  perform dsa_test.check(c, position('CAÏN' in st::text) = 0, 'secret name leaked while not ready');
+  perform dsa_test.check(c, position('meurtrier' in st::text) = 0, 'secret clue leaked while not ready');
+
+  -- the Découvreur waits
+  perform dsa_test.expect_error(c, format('select public.dsa_ask(%L)', s), 'DSA_TIREUR_NOT_READY');
+  perform dsa_test.expect_error(c, format('select public.dsa_guess(%L, %L)', s, 'CAÏN'), 'DSA_TIREUR_NOT_READY');
+  perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_WRONG_ROLE');
+  perform dsa_test.as_user(x);
+  perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_NOT_PLAYER');
+
+  -- the Tireur is ready; a second call changes nothing
+  perform dsa_test.as_user(t);
+  st := public.dsa_tireur_ready(s);
+  perform dsa_test.eq(c, 'ready: tireur_ready', st->>'tireur_ready', 'true');
+  perform dsa_test.eq(c, 'ready: prompt', st->'prompt'->>'text', 'ANCIEN');
+  st := public.dsa_tireur_ready(s);
+  perform dsa_test.eq(c, 'ready twice: tireur_ready', st->>'tireur_ready', 'true');
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'one TIREUR_READY move',
+    (select count(*)::text from public.game_moves m where m.game_session_id = s and m.payload->>'event' = 'TIREUR_READY'), '1');
+  perform dsa_test.check(c, (select gs.tireur_ready_at is not null from public.game_sessions gs where gs.id = s), 'tireur_ready_at stored');
+
+  -- now the Découvreur plays
+  perform dsa_test.as_user(d);
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'Découvreur sees tireur_ready', st->>'tireur_ready', 'true');
+  perform dsa_test.check(c, position('CAÏN' in st::text) = 0, 'secret name leaked after ready');
+  st := public.dsa_ask(s);
+  perform dsa_test.eq(c, 'ask after ready', st->>'awaiting', 'ANSWER');
+  perform dsa_test.as_user(t);
+  perform public.dsa_answer(s, 'OUI');
+  perform dsa_test.as_user(d);
+  st := public.dsa_guess(s, 'ABEL');
+  perform dsa_test.eq(c, 'guess after ready', st->>'awaiting', 'GUESS_CONFIRM');
+
+  -- over: GAME_OVER wins over everything
+  perform public.dsa_abandon(s);
+  perform dsa_test.as_user(t);
+  perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_GAME_OVER');
+
+  -- every other mode is ready from creation
+  perform dsa_test.as_user(t);
+  select cs.session_id into s from public.dsa_create_session('mini', 'LOCAL') cs;
+  perform dsa_test.eq(c, 'LOCAL tireur_ready', public.dsa_get_state(s)->>'tireur_ready', 'true');
+  perform public.dsa_ask(s);
+  st := public.dsa_tireur_ready(s);
+  perform dsa_test.eq(c, 'LOCAL dsa_tireur_ready is a no-op', st->>'awaiting', 'ANSWER');
+
+  select cs.session_id into s from public.dsa_create_session('mini', 'AI_TIREUR') cs;
+  perform dsa_test.eq(c, 'AI_TIREUR tireur_ready', public.dsa_get_state(s)->>'tireur_ready', 'true');
+  perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_WRONG_ROLE');
+  perform public.dsa_ask(s);
+
+  select cs.session_id into s from public.dsa_create_session('mini', 'AI_DECOUVREUR') cs;
+  perform dsa_test.eq(c, 'AI_DECOUVREUR tireur_ready', public.dsa_get_state(s)->>'tireur_ready', 'true');
+  st := public.dsa_ai_decouvreur_step(s);
+  perform dsa_test.eq(c, 'AI_DECOUVREUR plays at once', st->>'awaiting', 'ANSWER');
+
+  ---- privileges
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, has_function_privilege('authenticated', 'public.dsa_tireur_ready(uuid)', 'execute'),
+    'authenticated must be able to execute dsa_tireur_ready');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_tireur_ready(uuid)', 'execute'),
+    'anon must not execute dsa_tireur_ready');
+  perform dsa_test.as_user(d);
+  perform dsa_test.expect_error(c, format('select public.dsa_assert_tireur_ready(gs) from public.game_sessions gs where gs.id = %L', s), '42501');
+end;
+$$;
+
+do $$
+declare
+  c        constant text := '14 rooms: stale cleanup';
+  t        uuid := dsa_test.u(1);
+  d        uuid := dsa_test.u(2);
+  x        uuid := dsa_test.u(3);
+  s_wait   uuid;  -- WAITING, idle
+  s_play   uuid;  -- PLAYING, idle
+  s_fresh  uuid;  -- WAITING, active
+  s_found  uuid;  -- DISCOVERED long ago
+  s_left   uuid;  -- ABANDONED long ago
+  s_join   uuid;  -- WAITING, idle, then someone tries to join it
+  v_code   text;
+  v_ended  timestamptz;
+  v_n      integer;
+begin
+  perform dsa_test.as_user(t);
+  select cs.session_id into s_wait from public.dsa_create_session('mini', 'HUMAN_VS_HUMAN', 'TIREUR') cs;
+  select cs.session_id, cs.room_code into s_play, v_code from public.dsa_create_session('mini', 'HUMAN_VS_HUMAN', 'TIREUR') cs;
+  perform dsa_test.as_user(d);
+  perform public.dsa_join_session(v_code);
+  perform dsa_test.as_user(t);
+  select cs.session_id into s_fresh from public.dsa_create_session('mini', 'HUMAN_VS_HUMAN', 'DECOUVREUR') cs;
+  s_found := dsa_test.new_session(t, 'AI_TIREUR', null, 'E/fils-de-zebedee--jacques');
+  perform public.dsa_guess(s_found, 'JACQUES');
+  select cs.session_id into s_left from public.dsa_create_session('mini', 'LOCAL') cs;
+  perform public.dsa_abandon(s_left);
+
+  -- Age the sessions (as the table owner, bypassing the updated_at trigger).
+  perform dsa_test.as_postgres();
+  alter table public.game_sessions disable trigger game_sessions_set_updated_at;
+  update public.game_sessions set updated_at = now() - interval '7 hours'
+  where id in (s_wait, s_play, s_found, s_left);
+  update public.game_sessions set ended_at = now() - interval '7 hours' where id in (s_found, s_left);
+  alter table public.game_sessions enable trigger game_sessions_set_updated_at;
+
+  ---- internal only
+  perform dsa_test.as_user(t);
+  perform dsa_test.expect_error(c, 'select public.dsa_cleanup_stale_sessions()', '42501');
+  perform dsa_test.as_anon();
+  perform dsa_test.expect_error(c, 'select public.dsa_cleanup_stale_sessions()', '42501');
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_cleanup_stale_sessions(interval)', 'execute'),
+    'authenticated must not execute dsa_cleanup_stale_sessions');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_cleanup_stale_sessions(interval)', 'execute'),
+    'anon must not execute dsa_cleanup_stale_sessions');
+  perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_new_session(uuid,uuid,text,text,text,jsonb,uuid)', 'execute'),
+    'dsa_new_session must stay internal');
+  perform dsa_test.expect_error(c, $q$select public.dsa_cleanup_stale_sessions(interval '10 seconds')$q$, 'DSA_INVALID_IDLE');
+
+  ---- a longer idle time closes nothing
+  perform dsa_test.eq(c, 'closed with 8 hours', public.dsa_cleanup_stale_sessions(interval '8 hours')::text, '0');
+
+  ---- default 6 hours: only the two idle open sessions
+  -- (other open sessions of the project may also be idle: count ours only)
+  perform public.dsa_cleanup_stale_sessions();
+  perform dsa_test.eq(c, 'idle WAITING', (select status from public.game_sessions where id = s_wait), 'ABANDONED');
+  perform dsa_test.eq(c, 'idle PLAYING', (select status from public.game_sessions where id = s_play), 'ABANDONED');
+  perform dsa_test.eq(c, 'idle PLAYING awaiting', (select awaiting from public.game_sessions where id = s_play), 'NONE');
+  perform dsa_test.check(c, (select ended_at is not null from public.game_sessions where id = s_play), 'ended_at set on a closed session');
+  perform dsa_test.eq(c, 'IDLE moves',
+    (select count(*)::text from public.game_moves m
+     where m.game_session_id in (s_wait, s_play) and m.payload->>'reason' = 'IDLE'), '2');
+  perform dsa_test.eq(c, 'active WAITING untouched', (select status from public.game_sessions where id = s_fresh), 'WAITING');
+  perform dsa_test.eq(c, 'finished DISCOVERED untouched', (select status || '/' || winner from public.game_sessions where id = s_found), 'DISCOVERED/DECOUVREUR');
+  perform dsa_test.eq(c, 'finished ABANDONED untouched', (select status from public.game_sessions where id = s_left), 'ABANDONED');
+  select ended_at into v_ended from public.game_sessions where id = s_found;
+  perform dsa_test.check(c, v_ended < now() - interval '6 hours', 'ended_at of a finished session must not change');
+  perform dsa_test.eq(c, 'no IDLE move on finished sessions',
+    (select count(*)::text from public.game_moves m
+     where m.game_session_id in (s_found, s_left) and m.payload->>'reason' = 'IDLE'), '0');
+  perform dsa_test.eq(c, 'second run closes nothing of ours', (
+    select count(*)::text from public.game_sessions
+    where id in (s_wait, s_play, s_fresh, s_found, s_left) and status in ('WAITING', 'READY', 'PLAYING') and id <> s_fresh), '0');
+
+  ---- the players of a closed room see it ended
+  perform dsa_test.as_user(d);
+  perform dsa_test.eq(c, 'Découvreur state of the closed room', public.dsa_get_state(s_play)->>'status', 'ABANDONED');
+  perform dsa_test.expect_error(c, format('select public.dsa_ask(%L)', s_play), 'DSA_GAME_OVER');
+
+  ---- a joiner after cleanup: dsa_join_session cleans up first, then finds nothing
+  perform dsa_test.as_user(t);
+  select cs.session_id, cs.room_code into s_join, v_code from public.dsa_create_session('mini', 'HUMAN_VS_HUMAN', 'TIREUR') cs;
+  perform dsa_test.as_postgres();
+  alter table public.game_sessions disable trigger game_sessions_set_updated_at;
+  update public.game_sessions set updated_at = now() - interval '6 hours 1 minute' where id = s_join;
+  alter table public.game_sessions enable trigger game_sessions_set_updated_at;
+  perform dsa_test.as_user(x);
+  perform dsa_test.expect_error(c, format('select public.dsa_join_session(%L)', v_code), 'DSA_ROOM_NOT_FOUND');
+  perform dsa_test.as_postgres();
+  select count(*) into v_n from public.game_players p where p.game_session_id = s_join;
+  perform dsa_test.eq(c, 'nobody joined the idle room', v_n::text, '1');
+  -- The error rolls back the join's own cleanup, so the row is closed by the next
+  -- successful create/join (or the optional cron job), below.
+  perform dsa_test.eq(c, 'a refused join leaves the row as it was', (select status from public.game_sessions where id = s_join), 'WAITING');
+
+  ---- dsa_create_session cleans up too
+  perform dsa_test.as_postgres();
+  alter table public.game_sessions disable trigger game_sessions_set_updated_at;
+  update public.game_sessions set updated_at = now() - interval '7 hours' where id = s_fresh;
+  alter table public.game_sessions enable trigger game_sessions_set_updated_at;
+  perform dsa_test.as_user(x);
+  perform public.dsa_create_session('mini', 'AI_TIREUR');
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'closed by dsa_create_session', (select status from public.game_sessions where id = s_fresh), 'ABANDONED');
+  perform dsa_test.eq(c, 'idle room closed by dsa_create_session', (select status from public.game_sessions where id = s_join), 'ABANDONED');
+end;
+$$;
+
+do $$
+declare
+  c       constant text := '14 rooms: rematch';
+  t       uuid := dsa_test.u(1);
+  d       uuid := dsa_test.u(2);
+  x       uuid := dsa_test.u(3);
+  s       uuid;
+  v_code  text;
+  r       record;
+  r2      record;
+  st      jsonb;
+begin
+  perform dsa_test.as_user(t);
+  select cs.session_id, cs.room_code into s, v_code from public.dsa_create_session(
+    p_graph_slug => 'mini', p_mode => 'HUMAN_VS_HUMAN', p_role => 'TIREUR', p_display_name => 'Awa',
+    p_settings => '{"input_mode": "VOICE"}'::jsonb) cs;
+  perform dsa_test.as_user(d);
+  perform public.dsa_join_session(v_code, 'Bill');
+
+  -- not before the end
+  perform dsa_test.expect_error(c, format('select * from public.dsa_rematch(%L, true)', s), 'DSA_GAME_NOT_OVER');
+  perform public.dsa_abandon(s);
+
+  -- outsiders cannot use it
+  perform dsa_test.as_user(x);
+  perform dsa_test.expect_error(c, format('select * from public.dsa_rematch(%L, false)', s), 'DSA_NOT_PLAYER');
+
+  -- the Tireur proposes "Inverser les rôles"
+  perform dsa_test.as_user(t);
+  select * into r from public.dsa_rematch(s, true);
+  perform dsa_test.eq(c, 'proposer takes the other role', r.role, 'DECOUVREUR');
+  perform dsa_test.check(c, r.session_id <> s, 'a new session');
+  perform dsa_test.check(c, r.room_code ~ '^DSA-[0-9]{4}$', 'a room code');
+  st := public.dsa_get_state(r.session_id);
+  perform dsa_test.eq(c, 'new room waits', st->>'status', 'WAITING');
+  perform dsa_test.eq(c, 'same settings', st->>'settings', '{"input_mode": "VOICE"}');
+  perform dsa_test.eq(c, 'display name kept', st->'players'->0->>'display_name', 'Awa');
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'rematch_of', (select gs.rematch_of::text from public.game_sessions gs where gs.id = r.session_id), s::text);
+  perform dsa_test.as_user(t);
+
+  -- asking again returns the same room and role
+  select * into r2 from public.dsa_rematch(s, false);
+  perform dsa_test.eq(c, 'same room on a second call', r2.session_id::text, r.session_id::text);
+  perform dsa_test.eq(c, 'same role on a second call', r2.role, 'DECOUVREUR');
+
+  -- the other player accepts: joins that room, takes the free role, the game starts
+  perform dsa_test.as_user(d);
+  select * into r2 from public.dsa_rematch(s, false);
+  perform dsa_test.eq(c, 'accepter joins the same room', r2.session_id::text, r.session_id::text);
+  perform dsa_test.eq(c, 'accepter takes the free role', r2.role, 'TIREUR');
+  perform dsa_test.eq(c, 'accepter room code', r2.room_code, r.room_code);
+  st := public.dsa_get_state(r.session_id);
+  perform dsa_test.eq(c, 'rematch starts', st->>'status', 'PLAYING');
+  perform dsa_test.eq(c, 'rematch waits for the new Tireur', st->>'tireur_ready', 'false');
+  perform dsa_test.eq(c, 'accepter display name kept', st->'players'->0->>'display_name', 'Bill');
+  perform dsa_test.check(c, (select count(*) from public.dsa_get_my_secret(r.session_id)) = 1, 'the new Tireur reads the new card');
+
+  -- the room is full for anyone else, by code or by rematch
+  perform dsa_test.as_user(x);
+  perform dsa_test.expect_error(c, format('select * from public.dsa_join_session(%L)', r.room_code), 'DSA_ROOM_FULL');
+
+  -- only rooms between two players
+  perform dsa_test.as_user(t);
+  select cs.session_id into s from public.dsa_create_session('mini', 'AI_TIREUR') cs;
+  perform public.dsa_abandon(s);
+  perform dsa_test.expect_error(c, format('select * from public.dsa_rematch(%L, false)', s), 'DSA_WRONG_MODE');
+
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, has_function_privilege('authenticated', 'public.dsa_rematch(uuid,boolean)', 'execute'),
+    'authenticated must be able to execute dsa_rematch');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_rematch(uuid,boolean)', 'execute'),
+    'anon must not execute dsa_rematch');
 end;
 $$;
 

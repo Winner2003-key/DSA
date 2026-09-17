@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import type { AnswerClass } from '@dsa/core';
+import { speakableName, speakablePrompt } from '@dsa/voice';
 
 import { AnswerSlab, AppText, LinkButton, PathSheet, SecretCard } from '@/components';
 import { fitVariant } from '@/components/fit-variant';
@@ -11,6 +12,8 @@ import { useSpeech } from '@/speech/use-speech';
 import { useSecret } from '@/state/use-secret';
 import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
+import { CalibrationOffer, CalibrationSheet } from './calibration-panel';
+import { TireurVoice, isVoiceGame } from './voice-play';
 
 /** The book's own order, so the extra codes always sit in the same place. */
 const EXTRA_ORDER: AnswerClass[] = ['OUI_REPETE', 'NON_REPETE', 'JE_NE_SAIS_PAS'];
@@ -35,6 +38,8 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
   // On a shared phone the card starts face down; alone against the app, face up.
   const [revealed, setRevealed] = useState(state?.mode !== 'LOCAL');
   const [pathOpen, setPathOpen] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
+  const voice = isVoiceGame(game);
   const spoken = useRef('');
 
   const prompt = state?.prompt ?? null;
@@ -45,11 +50,12 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
     if (state?.mode === 'LOCAL') setRevealed(false);
   }, [state?.mode]);
 
-  // Read the question — or the name being called — out loud to the Tireur.
+  // Read the question — or the name being called — out loud to the Tireur, as the
+  // bare label in its speakable form: "Lié à Adam ?", never "Est-ce …" (§10).
   useEffect(() => {
     let utterance = '';
-    if (pendingGuess) utterance = fr.spoken.guess(pendingGuess);
-    else if (awaiting === 'ANSWER' && prompt) utterance = fr.spoken.question(prompt.text);
+    if (pendingGuess) utterance = `${speakableName(pendingGuess)} ?`;
+    else if (awaiting === 'ANSWER' && prompt) utterance = speakablePrompt(prompt.text);
     if (utterance && utterance !== spoken.current) {
       spoken.current = utterance;
       speak(utterance);
@@ -89,36 +95,12 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
     <View style={{ flex: 1, gap: theme.space.md }}>
       <SecretCard secret={secret} revealed={revealed} onToggle={() => setRevealed((r) => !r)} />
 
+      {voice ? <CalibrationOffer onCalibrate={() => setCalibrating(true)} /> : null}
+
       {pendingGuess ? (
-        <View style={{ gap: theme.space.sm }}>
-          {incoming(fr.tireur.calls, pendingGuess, 'incoming-guess')}
-          <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
-            <AnswerSlab answerClass="OUI" half disabled={busy} testID="confirm-oui" onPress={() => void game.confirmGuess('OUI')} />
-            <AnswerSlab answerClass="NON" half disabled={busy} testID="confirm-non" onPress={() => void game.confirmGuess('NON')} />
-          </View>
-        </View>
+        incoming(fr.tireur.calls, pendingGuess, 'incoming-guess')
       ) : awaiting === 'ANSWER' && prompt ? (
-        <View style={{ gap: theme.space.sm }}>
-          {incoming(fr.tireur.asks, asQuestion(prompt.text), 'incoming-question')}
-          <View testID="answer-pad" style={{ gap: theme.space.sm }}>
-            {main.length > 0 ? (
-              <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
-                {main.map((cls) => (
-                  <AnswerSlab
-                    key={cls}
-                    answerClass={cls}
-                    half={main.length > 1}
-                    disabled={!canAnswer}
-                    onPress={() => void game.answer(CANONICAL_LABEL[cls])}
-                  />
-                ))}
-              </View>
-            ) : null}
-            {extras.map((cls) => (
-              <AnswerSlab key={cls} answerClass={cls} disabled={!canAnswer} onPress={() => void game.answer(CANONICAL_LABEL[cls])} />
-            ))}
-          </View>
-        </View>
+        incoming(fr.tireur.asks, asQuestion(prompt.text), 'incoming-question')
       ) : (
         <View
           testID="tireur-waiting"
@@ -130,6 +112,35 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
           </AppText>
         </View>
       )}
+
+      {/* Mounted once for the whole game, so what was heard and a fallback survive between turns. */}
+      {voice ? <TireurVoice game={game} paused={calibrating} /> : null}
+
+      {pendingGuess ? (
+        <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+          <AnswerSlab answerClass="OUI" half disabled={busy} testID="confirm-oui" onPress={() => void game.confirmGuess('OUI')} />
+          <AnswerSlab answerClass="NON" half disabled={busy} testID="confirm-non" onPress={() => void game.confirmGuess('NON')} />
+        </View>
+      ) : awaiting === 'ANSWER' && prompt ? (
+        <View testID="answer-pad" style={{ gap: theme.space.sm }}>
+          {main.length > 0 ? (
+            <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+              {main.map((cls) => (
+                <AnswerSlab
+                  key={cls}
+                  answerClass={cls}
+                  half={main.length > 1}
+                  disabled={!canAnswer}
+                  onPress={() => void game.answer(CANONICAL_LABEL[cls])}
+                />
+              ))}
+            </View>
+          ) : null}
+          {extras.map((cls) => (
+            <AnswerSlab key={cls} answerClass={cls} disabled={!canAnswer} onPress={() => void game.answer(CANONICAL_LABEL[cls])} />
+          ))}
+        </View>
+      ) : null}
 
       {state.path.length > 0 ? (
         <LinkButton testID="see-path" label={fr.conversation.seePath} onPress={() => setPathOpen(true)} />
@@ -194,6 +205,7 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
       </View>
 
       <PathSheet visible={pathOpen} path={state.path} onClose={() => setPathOpen(false)} />
+      {voice ? <CalibrationSheet visible={calibrating} onClose={() => setCalibrating(false)} /> : null}
     </View>
   );
 }
