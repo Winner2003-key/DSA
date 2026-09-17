@@ -34,6 +34,9 @@ Sessions in the same wave can run **at the same time**, because they own separat
 | 4 | S6 | `S6-rooms.md`: rooms on two devices, lobby, QR / share, presence, Tireur-ready across devices, realtime, stale rooms, rematch | `apps/mobile/`, SQL 0008 / `05_rooms.sql`, regenerates `00` | ✅ done, reviewed, committed |
 | 5 | S7b | `S7b-voice-in-app.md`: speak to play (Expo Go and web), hold-to-talk, calibration screen, Voix mode, fallbacks | `apps/mobile/`, small `packages/voice` additions | ✅ done, reviewed, committed |
 | 6 | S7c | `S7c-live-voice.md`: live voice between players (WebRTC), TURN via Edge Function, dev build / APK | `apps/mobile/`, `supabase/functions/turn-credentials/` | after S9 (both own `apps/mobile`) |
+| 6 | S10 | `S10-app-experience.md`: icons (B2), Réglages screen (B4), device voices male/female + speed (B3), admin-editable pronunciation (B6) | `apps/mobile/`, `apps/admin/` Prononciation, SQL next free number, additive voice | ▶ ready (one app session at a time) |
+| 6 | S11 | `S11-rules-and-practice.md`: "QUESTION" goes back to the opening question (B1), practise one part of the book (B7) | `packages/core`, `supabase/`, `apps/mobile/`, GAME_RULES §4 + spec §2 | ▶ ready (one app session at a time) |
+| 8 | S12 | `S12-hands-free.md`: hands-free voice-first play (B5, the main goal) | `apps/mobile/`, additive voice and core | after S7c |
 | 7 | S8 | `S8-hardening.md`: opaque ids, leak-proof tests, abuse limits, audit, accessibility, CI, full README, device test plan | all | after S7c (or S7b) |
 | any | S5 | `S5-admin.md`: Next.js admin, graph editor, import review, homonym descriptions, game settings | `apps/admin/` | ✅ done (features 1–4); Homonymes page → S5b; Réglages → S9 |
 | any | S5b | `S5b-admin-homonyms.md`: the Homonymes page (descriptions for people sharing a name, with a Tireur card preview) | `apps/admin/` | ✅ done, reviewed, committed |
