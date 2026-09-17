@@ -1,89 +1,116 @@
-# Brief S9 — Optional timer, name changes, and the book's path for a lost game
+# Brief S9 — Optional timer, name changes before the start, and the book's path at the end of every game
 
-You are a senior full-stack engineer (PostgreSQL / Supabase, React Native / Expo, Next.js) on **DSA — Découverte Sans Alphabet**, a French Bible-name discovery game. Repo: `/home/winner/projects/DSA`.
-
-**Start after S6 (rooms) and S5b (admin Homonymes) are finished and committed**: you touch `apps/mobile` and `apps/admin` too. Don't run at the same time as S7b.
+You are a senior full-stack engineer (PostgreSQL / Supabase, React Native / Expo, Next.js) on **DSA — Découverte Sans Alphabet**, a French Bible-name discovery game played by voice or buttons. Repo: `/home/winner/projects/DSA`.
 
 ## Read first, completely
 1. `docs/sessions/README.md`: global rules. **No Docker**, no commit, French UI. **Public repo: never write the source book's title, author or organisation**; the book graph is `livre`.
-2. `GAME_RULES.md`: especially "Time limits, name changes and learning from a lost game".
-3. **`GRAPH_SPECIFICATION.md` §9** (the design you implement), plus §3, §7, §8 and §10.
+2. `GAME_RULES.md`: especially **"Time limits, name changes and learning from a lost game"** (points 1–5, the owner's final decisions).
+3. **`GRAPH_SPECIFICATION.md` §9** (the design you implement: clock, preparation phase and name change, end-of-game statistics and solution path), plus §3, §7, §8 and §10.
 4. `DATABASE_SCHEMA.md`.
-5. Reports: `S3b-game-ux.md` (the setup screen, the reserved header slot, `PathGraph`, LOCAL `TIREUR_READY`), **`S6-rooms.md`** (`tireur_ready_at`, `dsa_tireur_ready`, rooms, rematch, realtime), `S5-admin.md` and `S5b-admin-homonyms.md` (the admin structure), and `S2-database.md` (verifying SQL without Docker).
+5. Reports:
+   - `S3b-game-ux.md`: setup screen, header slot, `PathGraph`, result screen.
+   - **`S6-rooms.md`**: `tireur_ready_at`, `dsa_tireur_ready`, `dsa_start_play`, `dsa_assert_tireur_ready`, rooms, rematch, realtime. **Read its §6 open question 2 and §9 "Notes for S9".**
+   - **`S7b-voice-app.md`**: voice play; the timer must work with voice, and nothing may listen during the preparation phase.
+   - `S5-admin.md` and `S5b-admin-homonyms.md`: admin structure.
+   - `S2-database.md`: verifying SQL without Docker.
+
+## Owner decisions (final; don't ask again)
+1. **Name change only before the game starts.** The Tireur may draw another name (max 2 per game) **only while looking at the card, before "Je suis prêt"**. Once the questions have started, no change; the Tireur can only abandon.
+2. With the timer, a name change gives a **fresh thinking time**.
+3. **The game time is fixed.** Rewinds, going back and wrong name calls all consume the same time; nothing extends or resets it.
+4. In rooms, the clock starts only once **both players are present**.
+5. **The end screen of every game** (discovered, time up or abandoned):
+   - shows the game card first: outcome, name, **statistics** (questions, NON, back-steps, rewinds) and, **if the timer was on and the name was found, the time taken** ("Trouvé en 1 min 12 s sur 2 min");
+   - then **the book's actual path to the name** (solution path) in the animated `PathGraph`. The **players' own path is no longer shown on the result screen**; it's still available during play under "Voir le chemin".
+
+   The owner likes the current `PathGraph` rendering: keep it.
 
 ## You own
 - `supabase/`: `migrations/0009_timer.sql`, `sql-editor/06_timer.sql`, regenerating `00_all_migrations.sql`, additions to `90_tests.sql`, and `DATABASE_SCHEMA.md`;
 - `apps/mobile/**`;
 - `apps/admin/**`, **only** the new Réglages page and its link;
-- `packages/core`: additive changes (`solutionPath`, the timer and redraw mirror for the offline service), with tests.
-
-## First: confirm with the owner (ask at the start, then record the answers in your report)
-1. **Name change:** is it allowed (a) only during the thinking phase or before the first answer, or (b) any time during the game, restarting the questions from the start? Default: **(b)**, since the owner said "during the game".
-2. **With the timer:** does a name change restart the thinking time (default **yes**) and leave the game clock running once it has started (default **yes**)?
-3. Do rewinds ("QUESTION") and going back use game time normally? (Default **yes**.)
-4. In rooms, does the clock start only once both players are present? (Default **yes**.)
-5. After a **discovered** game, should the book's path also be offered as a secondary "Voir le chemin du livre" button? (Default **yes**.)
+- `packages/core`: additive changes (`solutionPath`, the timer, preparation and redraw mirror for the offline service), with tests.
 
 ## Deliver
 
-### 1. The timer is optional
-- **"Préparer la partie"** (S3b) and **room creation** (S6) get a checkbox **« Jouer avec le chronomètre »**, unchecked by default, with a one-line explanation using the current durations (for example "40 s pour réfléchir, puis 2 min pour trouver").
-- In rooms, the creator's choice applies to both players, and the lobby shows it.
-- Send `settings.timed`. Server: extend `dsa_normalize_settings` to accept `timed` (boolean) and copy the durations from `app_settings` when it's true (§9). `dsa_rematch` keeps the settings.
+### 1. The optional timer
+- **"Préparer la partie"** and **room creation** get a checkbox **« Jouer avec le chronomètre »**, unchecked by default, with a one-line explanation using the current durations ("40 s pour réfléchir, puis 2 min pour trouver").
+- In rooms, the creator's choice applies to both players, and the lobby shows it read-only.
+- `settings.timed` goes through `dsa_create_session(p_settings)`. `dsa_normalize_settings` accepts `timed` (boolean) and, when it's true, **the server copies** `think_seconds` and `play_seconds` from `app_settings`. `max_redraws` is always copied. `dsa_rematch` keeps the settings.
 
 ### 2. Settings storage and the admin "Réglages" page
-- `app_settings`: a single row with `think_seconds`, `play_seconds` and `max_redraws`, the defaults and bounds from §9, and RLS (admins write; RPCs read through SECURITY DEFINER).
-- Admin page `/reglages`: edit the three values with bounds and help text, linked from the admin header. Mock mode keeps them in memory.
+- `app_settings`: a single row with `think_seconds` (40, 10–600), `play_seconds` (120, 30–1800) and `max_redraws` (2, 0–5). RLS: admins write; RPCs read through SECURITY DEFINER.
+- Admin page `/reglages`: edit the three values with bounds and French help text, linked from the admin header. Mock mode keeps them in memory.
 
-### 3. Server-authoritative clock (timed games only), per §9
-- `think_ends_at`, `play_ends_at`, the new status `TIME_UP`, `DSA_TIME_UP`, `dsa_check_time`.
-- State JSON: `timed`, `phase`, `think_ends_at`, `play_ends_at`, `server_now`.
-- A move that arrives right at the deadline is decided by a single `now()` per call.
-- Untimed games behave exactly as today (every existing test still passes).
+### 3. A server-side preparation phase for every human Tireur
+- Generalize S6's HUMAN_VS_HUMAN `tireur_ready_at` to **LOCAL and AI_DECOUVREUR**: these modes now also start with `tireur_ready_at` null.
+  - `dsa_ask`, `dsa_guess` and `dsa_ai_decouvreur_step` raise `DSA_TIREUR_NOT_READY` until `dsa_tireur_ready`.
+  - AI_TIREUR is ready at creation.
+- The app's client-only LOCAL `TIREUR_READY` step now follows the server phase.
+- **Card reading (S6 §6.2):** `dsa_get_my_secret` is refused (`DSA_WAITING_FOR_PLAYER`) while a room is still WAITING. In a timed game, the thinking clock starts when the phase starts (both players present), so reading the card earlier gives no advantage.
+- **Voice (S7b):** nothing listens during this phase.
 
-### 4. Name change (timed or not), per §9 and the owner's answers
-- `dsa_redraw_secret`, `game_secrets.previous_node_ids`, `DSA_NO_REDRAW_LEFT`, `redraws_used` / `redraws_left` in the state, and the `SYSTEM` move `REDRAW`.
-- **Tireur app:** a **« Changer de nom »** button near the card, with the number left ("2 restants"). It asks for confirmation ("Tu ne trouves pas ce nom dans le livre ?"), then shows the new card with a flip.
-- **Découvreur app:** a short notice "Le Tireur a changé de nom", which also appears in the conversation timeline.
-- AI Tireur: not applicable. AI Découvreur mode: the human Tireur can redraw.
+### 4. Server-authoritative clock (timed games only), per §9
+- `think_ends_at` is set when the preparation phase starts: at creation for LOCAL and AI_DECOUVREUR, and in `dsa_start_play` when a room becomes PLAYING. `dsa_tireur_ready` or the deadline ends it.
+- `play_ends_at = end of thinking + play_seconds`, **never changed afterwards**.
+- New status `TIME_UP` (winner null), `DSA_TIME_UP` (checked first in every mutating RPC, for example in `dsa_assert_tireur_ready` and the play RPCs), and `dsa_check_time(session)` for idle clients.
+- State JSON: `timed`, `phase` (`THINKING`|`PLAYING`), `think_ends_at`, `play_ends_at`, `server_now`.
+- A move that arrives right at the deadline is decided by one `now()` per call.
+- **Untimed games** behave exactly as today, except that the preparation phase now exists in LOCAL and AI_DECOUVREUR.
 
-### 5. The book's path when the name wasn't found
-- `dsa_get_solution_path` (SQL) and `solutionPath(ix, secretNodeId)` (core), per §9. It's available only after the end, and the security tests prove it's refused before.
-- **Result screen:**
-  - `TIME_UP` / `ABANDONED` → "Temps écoulé" / "Partie arrêtée", the name, the description only when homonyms exist, then **"Voici le chemin du livre pour trouver <NOM>"** with the `PathGraph` animation of the solution path, **instead of** the players' path;
-  - `DISCOVERED` → unchanged, plus the secondary "Voir le chemin du livre" if the owner confirms.
-- The stats still describe what the players did.
+### 5. Name change before the start
+- `dsa_redraw_secret(p_session_id)`: TIREUR only, **only during the preparation phase**, otherwise `DSA_GAME_STARTED`.
+  - It excludes names already drawn (`game_secrets.previous_node_ids`, private).
+  - It raises `DSA_NO_REDRAW_LEFT` after `max_redraws`.
+  - In a timed game it restarts `think_ends_at`.
+- State: `redraws_used`, `redraws_left`, never which names. A `SYSTEM` move with `payload.event = 'REDRAW'`.
+- **Tireur app (preparation view):**
+  - **« Changer de nom »** with "2 restants";
+  - a confirmation ("Tu ne trouves pas ce nom dans le livre ?");
+  - the new card flips in.
+  - The button disappears once the game has started; from then on only "Abandonner".
+- **Découvreur app:** "Le Tireur a changé de nom" during the wait.
 
-### 6. The timer in the app
-- A countdown ring in the header slot S3b reserved.
-  - **Thinking phase** — Tireur: "Réfléchis au chemin…" with "Je suis prêt"; Découvreur: "Le Tireur réfléchit…".
+### 6. End of every game: statistics card, then the book's path
+- `dsa_get_solution_path(p_session_id)`: players, **only once the session is DISCOVERED, TIME_UP or ABANDONED** (refused before, and a security test proves it). It uses the same entry shape as `path[]`, plus the secret. Core mirror: `solutionPath(ix, secretNodeId)`.
+- `dsa_get_revealed_path().stats` gains `timed`, `play_seconds` and `found_in_seconds` (null unless discovered).
+- **Result screen for every outcome:**
+  - the game card: "Trouvé !" / "Temps écoulé" / "Partie arrêtée", the name, the description only when homonyms exist, the stats, and **"Trouvé en X sur Y"** when timed and discovered;
+  - then **"Le chemin du livre pour trouver <NOM>"**: the `PathGraph` animation of the **solution path**.
+  - Remove the players' own path from the result screen. Keep the "Rejouer" flows (rooms rematch included).
+- **During play**, "Voir le chemin" still shows the players' own traversed path.
+
+### 7. The timer in the app
+- A countdown ring in the header slot S3b reserved, and in the `think-timer-slot` views S6 prepared (`TireurReadyView`, `DecouvreurWaitingView`).
+  - **Thinking phase** — Tireur: "Réfléchis au chemin…" with "Je suis prêt" and "Changer de nom"; Découvreur: "Le Tireur réfléchit…".
   - **Game phase:** the ring for both players.
-- Warnings at 30 s and 10 s (haptic, subtle colour change); **reduced motion respected**.
-- The countdown is computed from `server_now`, and resynchronized on each state refresh and realtime event.
-- Rooms stay synchronized, and a device that reconnects shows the right time left.
-- LOCAL: the thinking phase shows on the Tireur's turn, then "Passe le téléphone".
+- Warnings at 30 s and 10 s (haptic, subtle colour change); reduced motion respected.
+- The countdown is computed from `server_now`, and resynchronized on every state refresh and realtime event. A device that reconnects shows the right time left.
+- Timing out while recording voice cancels the recording cleanly.
+- LOCAL: the thinking phase on the Tireur's turn, then "Passe le téléphone".
 
-### 7. Offline service
-Mirrors all of the above (timer with an injectable clock, redraws, solution path) for demos and tests.
+### 8. Offline service
+Mirrors all of the above (timer with an injectable clock, preparation phase, redraws, stats, solution path) for demos and tests.
 
 ## SQL delivery (no Docker)
 - Re-runnable.
-- Verified like S2 (libpg-query plus PGlite in your scratchpad, not the repo), on a fresh database (`00 → 01 → 90`) **and** on the owner's upgrade path (existing project → `06_timer.sql` → `90`).
+- Verified like S2 (libpg-query plus PGlite in your scratchpad, not the repo), on a fresh database (`00 → 01 → 90`) **and** on the owner's upgrade path (a project that already has `00`–`05` → `06_timer.sql` → `90`).
 - **Tests:**
-  - an untimed game is unchanged;
-  - timed: deadlines, early ready, `TIME_UP` from any RPC after the deadline, `dsa_check_time`, the settings snapshot (changing `app_settings` mid-game doesn't affect a running game), bounds;
-  - redraws: max 2, never the same name twice, the reset behaviour from the owner's answer, and the Découvreur never learns which names were drawn;
+  - untimed games are unchanged, apart from the new preparation phase in LOCAL and AI_DECOUVREUR;
+  - timed: deadlines, early ready, `TIME_UP` from any RPC after the deadline, `dsa_check_time`, the settings snapshot (changing `app_settings` mid-game doesn't affect a running game), bounds, the clock starting only when both players are present;
+  - redraws: max 2, never the same name twice, **refused once the game has started**, a fresh thinking time, and no leak of drawn names;
   - solution path: correct for every playable secret of `mini`, with the same shape as `path[]`, refused before the end;
+  - `found_in_seconds`;
   - no secret leaks in any new field.
 
 ## Verification (paste the output)
-- core, mobile and admin `npm test` / `typecheck`; `npm run build --workspace apps/admin`; `expo-doctor`; `npx expo export -p web --clear`;
-- fake-clock tests: the countdown from `server_now`, the warnings, the time-up flow in each mode, a redraw during the thinking phase and during play, and the solution path rendered on a lost game;
-- headless screenshots (offline mode) in `docs/sessions/reports/S9-screens/`: setup with the checkbox, the thinking phase, the countdown, a redraw, time up with the book's path, and the admin Réglages page.
+- core, voice, mobile and admin `npm test` / `typecheck`; `npm run build --workspace apps/admin`; `expo-doctor`; `npx expo export -p web --clear`;
+- fake-clock tests: countdown from `server_now`, warnings, time up in each mode, redraw during the preparation phase (and refused after), result screen stats with "Trouvé en…", and the solution path rendered for each outcome;
+- headless screenshots (offline mode) in `docs/sessions/reports/S9-screens/`: setup with the checkbox, the thinking phase with "Changer de nom", the countdown in play, time up, a discovered-game result with "Trouvé en…" and the book's path, and the admin Réglages page.
 
 ## Report
 Write `docs/sessions/reports/S9-timed-games.md` with:
-- the owner's answers to the 5 questions;
 - files and outputs;
-- **the exact SQL file to paste** (`06_timer.sql`, then `90_tests.sql`);
-- deviations and open questions.
+- **the exact SQL to paste** (`06_timer.sql`, then `90_tests.sql`);
+- deviations and open questions;
+- notes for S7c (live voice) and S8.
