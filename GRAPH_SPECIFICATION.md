@@ -345,13 +345,40 @@ The implementations in `docs/sessions/reports/S1-core.md` and `S2-database.md` a
   - Groq / Hugging Face keys are Supabase Edge Function secrets only (§1);
   - TURN server credentials (S7c) are issued short-lived by an Edge Function, never embedded in the app.
 
-## 9. Planned: timed games (owner request 2026-09-16 — NOT implemented yet, do not wire)
+## 9. Timed games, name changes and the solution path (owner, 2026-09-16 / 2026-09-17; built by S9)
 
-- **Thinking time:** when the Tireur gets the name, they have a thinking time to work out the book path to that name. **Default 40 s.**
-- **Game time:** then the game clock starts, and both players together have a game time to find the name. **Default 120 s.** If it runs out before the name is discovered, **both players lose**.
-- **Admin-configurable:** both durations are set by the admin in the admin panel (S5, "Réglages"); the defaults above apply until then.
-- **Intended design, for the session that implements it:**
-  - Settings are stored server-side (for example `app_settings` or `graphs.settings`: `think_seconds = 40`, `play_seconds = 120`) and copied into `game_sessions.settings` when a session is created, so a running game never changes.
-  - The server is authoritative: it sets `think_ends_at` and `play_ends_at` timestamps, rejects moves after the deadline (`DSA_TIME_UP`), and a new status `TIME_UP` (winner null, both lose) is set by the next RPC call or by `dsa_check_time(session)`. Clients only display a countdown computed from the server timestamps (clock-skew-safe: use the server's `now()` returned in the state).
-  - The thinking phase replaces the client-only `TIREUR_READY` step of §8 (LOCAL) and applies to every mode. The AI Tireur needs no thinking time.
-  - Open points to confirm then: whether a "QUESTION" rewind or going back consumes time normally (assumed yes); whether the Tireur can end the thinking time early (assumed yes, with "Je suis prêt"); and what the clock does while waiting for the second player in a room (assumed: it starts only when both are present).
+**Settings**
+- `app_settings`: a single row, admin-editable (RLS), holding `think_seconds` (default 40, bounds 10–600), `play_seconds` (default 120, bounds 30–1800) and `max_redraws` (default 2, bounds 0–5).
+- `game_sessions.settings` gains `timed` (boolean, default **false**), sent by the client through `dsa_create_session(p_settings)` (and `dsa_rematch` keeps it).
+- When `timed` is true, the server **copies** `think_seconds` and `play_seconds` into `settings` at creation, so a running game never changes. `max_redraws` is always copied.
+- Clients may only send `input_mode` and `timed`; any other key is still `DSA_INVALID_SETTINGS`.
+
+**Clock (only when `settings.timed`); the server is authoritative**
+- **Thinking phase:** starts when the Tireur has the card and both players are present; `think_ends_at = now() + think_seconds`. It ends at `think_ends_at` or at `dsa_tireur_ready` (early), whichever comes first.
+- **Game phase:** `play_ends_at = <end of thinking> + play_seconds`.
+- **Deadline check:** every mutating RPC checks the deadline first. After it, the session becomes **`TIME_UP`** (new status, `winner` null, both lose) and the call raises `DSA_TIME_UP`. `dsa_check_time(session)` lets idle clients trigger it.
+- **State JSON:** adds `timed`, `phase` (`THINKING`|`PLAYING`), `think_ends_at`, `play_ends_at` and **`server_now`**. Clients display a countdown computed against `server_now`, never against the device clock.
+- **Modes:** the AI Tireur has no thinking phase. A human Tireur facing the AI Découvreur does. LOCAL: the thinking phase replaces the client-only `TIREUR_READY` step. Untimed games keep the existing "Je suis prêt" behaviour with no clock.
+
+**Preparation phase and name change (owner, 2026-09-17)**
+- **Every mode with a human Tireur** (HUMAN_VS_HUMAN, LOCAL, AI_DECOUVREUR) starts in a server-side **preparation phase**: the Tireur sees the card, and nobody can ask, call a name or let the AI Découvreur play until the Tireur taps "Je suis prêt" (`dsa_tireur_ready`), or until the thinking time ends in a timed game.
+  - This generalizes S6's HUMAN_VS_HUMAN `tireur_ready_at` to LOCAL and AI_DECOUVREUR, and replaces the client-only LOCAL `TIREUR_READY` step.
+  - AI_TIREUR has no preparation phase.
+- `dsa_redraw_secret(p_session_id)` (TIREUR only) draws a new random playable secret. It excludes every secret already drawn in this session (`game_secrets.previous_node_ids`, private).
+  - It's **allowed only during the preparation phase**, before `tireur_ready_at` is set and before any question. Otherwise it raises `DSA_GAME_STARTED`.
+  - After `max_redraws` it raises `DSA_NO_REDRAW_LEFT`.
+  - In a timed game it **restarts the thinking time** (`think_ends_at = now() + think_seconds`).
+- The state JSON exposes `redraws_used` and `redraws_left`, never which names were drawn. A `SYSTEM` move with `payload.event = 'REDRAW'` lets the other device show "Le Tireur a changé de nom".
+- Once the game has started the name can't change; the Tireur can only abandon (`dsa_abandon`).
+- **Time is fixed:** rewinds, going back and wrong name calls consume the same game time. Nothing extends or resets `play_ends_at` once it's set.
+
+**End of every game: statistics and the book's path**
+- `dsa_get_solution_path(p_session_id)`: players, **only once the session is `DISCOVERED`, `TIME_UP` or `ABANDONED`**.
+  - It returns the **book's canonical path** from START to the secret: every spine question with its correct code; inside the trees, each child in book order answered NON until the one answered OUI; then the name.
+  - It uses the same entry shape as `path[]` (`step_index`, `text`, `answer_label`, `prompt_kind`, `node_type`, `target_text`) plus the secret `{name, description, has_homonyms}`, so `PathGraph` renders it unchanged.
+  - Core mirror: `solutionPath(ix, secretNodeId)`, which is exactly the AI Découvreur's walk with a truthful Tireur, without name calls.
+- `dsa_get_revealed_path().stats` gains `timed`, `play_seconds` (the limit, when timed) and `found_in_seconds` (from the start of the game phase to the discovery; null unless `DISCOVERED`).
+- **Result screen, for every outcome:**
+  - first the game card: the outcome, the name (description only when homonyms exist), the stats (questions, NON, back-steps, rewinds) and, **if timed and discovered, "Trouvé en X sur Y"**;
+  - then **"Le chemin du livre pour trouver <NOM>"**: the animated `PathGraph` of the **solution path**. The players' own path is **not** shown on the result screen.
+- During play, "Voir le chemin" keeps showing the players' own traversed path.

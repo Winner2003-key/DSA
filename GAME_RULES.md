@@ -1,6 +1,6 @@
 # GAME RULES — DSA (Découverte Sans Alphabet)
 
-These rules were confirmed by the project owner on 2026-09-15. The book (the source book (PDF, not in the repo)) is the source of truth for every question, its order and its answer codes.
+These rules were confirmed by the project owner on 2026-09-15. The source book (private, never in the repo) is the source of truth for every question, its order and its answer codes.
 
 ## Roles
 
@@ -54,19 +54,25 @@ If the Découvreur named the wrong leaf, or reaches the end of a list without a 
 
 ## 6. End of the game
 
-- Discovery shows 🎉 and the name, followed by the **path actually taken**, animated: question → answer → question → … → NAME ⭐.
-- Branches that weren't used and questions that were undone by going back aren't shown.
+- The end screen shows the name and the game statistics, then **the book's own path to the name** (animated graph), whatever the outcome. See "Time limits, name changes and learning from a lost game", point 5.
 
 ## The name card
 
 The Tireur's card shows the name. **A short description is added only when several people in the book share that name** (for example LEMEC, HENOC, JOAS), so the Tireur knows which one to have discovered. Admins can improve those descriptions (admin panel, "Homonymes").
 
-## Planned: time limits (not active yet)
+## Time limits, name changes and learning from a lost game (owner, 2026-09-17; built by S9)
 
-1. **Thinking time (default 40 s):** when the Tireur receives the name, they have this long to work out the path to it in the book.
-2. **Game time (default 120 s):** then the clock starts for both players. If the name isn't discovered in time, **both players lose**.
-
-The admin sets both durations in the admin panel. Details are in GRAPH_SPECIFICATION §9.
+1. **The timer is optional.** In "Préparer la partie" (and when creating a room), a checkbox **« Jouer avec le chronomètre »**, unchecked by default. The room creator chooses for both players.
+2. **With the timer:**
+   - **Thinking time (default 40 s):** when the Tireur receives the name, they have this long to work out the path to it in the book. "Je suis prêt" ends it early.
+   - **Game time (default 120 s):** then the clock runs for both players. If the name isn't discovered in time, **both players lose**.
+   - The admin sets both durations in the admin panel ("Réglages").
+3. **Changing the name (owner, 2026-09-17):** if the Tireur can't find the drawn name in the book, they can **draw another name, at most 2 times per game** (admin setting, default 2), **only before the game starts**: while looking at the card, before "Je suis prêt". Once the questions have started, the name can't be changed; the Tireur can only abandon. A name already drawn in that game never comes back. The Découvreur only sees "Le Tireur a changé de nom". With the timer, a new name gives a **fresh thinking time**. This works with or without the timer.
+4. **The game time is fixed.** Nothing adds or removes time: rewinds ("QUESTION"), going back or wrong name calls all happen inside the same 120 s. In a room, the clock only starts once both players are there.
+5. **The end screen always teaches the book's path** (discovered, time up or abandoned):
+   - first the **game card**: the name, the statistics (questions, NON answers, back-steps, "QUESTION" rewinds) and, **if the timer was on and the name was found, the time it took** (for example "Trouvé en 1 min 12 s sur 2 min");
+   - then **the book's actual path to the name** as the animated graph: every question in book order with the right answers, down to the name. It's **not** the players' own path, with its detours and back-steps.
+   - During the game, "Voir le chemin" still shows the players' own path so far (the book's path can't be shown before the end).
 
 ## Modes
 

@@ -2,7 +2,7 @@
 
 The Supabase (PostgreSQL) side of the project. It implements `GRAPH_SPECIFICATION.md` §2 (rules) and §3 (database).
 
-- Source: `supabase/migrations/0001…0006` (0006 = game UX iteration, GRAPH_SPECIFICATION §8).
+- Source: `supabase/migrations/0001…0008` (0006 = game UX iteration, GRAPH_SPECIFICATION §8; 0007 = voice rate limit, see `VOICE.md`; 0008 = rooms on two devices, brief S6).
 - What the owner runs: `supabase/sql-editor/` (see its `README.md`).
 - Tests: `supabase/sql-editor/90_tests.sql`.
 
@@ -126,7 +126,9 @@ Indexes: `graph_id`, `from_node_id`, `to_node_id`, `(from_node_id, order_index)`
 | winner | text | `TIREUR` \| `DECOUVREUR` \| null |
 | settings | jsonb, not null, default `{}` | Chosen at creation (`dsa_create_session(p_settings)`), checked to be an object. Stored normalized: `{"input_mode": "VOICE" \| "BUTTONS"}` (default `BUTTONS`). Reserved for the §9 timer values. |
 | created_by | uuid → auth.users | |
-| started_at, ended_at, created_at, updated_at | timestamptz | |
+| tireur_ready_at | timestamptz | (0008) When the Tireur said "Je suis prêt". Set at creation for every mode except HUMAN_VS_HUMAN; a room sets it through `dsa_tireur_ready`. While it is null in a PLAYING room, the Découvreur can neither ask nor call a name (`DSA_TIREUR_NOT_READY`). This is the phase the §9 thinking time will be put on. |
+| rematch_of | uuid → game_sessions | (0008) The finished room this one was created from by `dsa_rematch`; set null if that session is deleted. |
+| started_at, ended_at, created_at, updated_at | timestamptz | `updated_at` is set by trigger on every transition, so it is the time of the last activity (stale-room cleanup). |
 
 **`game_players`**
 
@@ -230,6 +232,12 @@ Call them from the client with `supabase.rpc('dsa_ask', { p_session_id })`. Func
 | `dsa_abandon(p_session_id uuid)` | player | jsonb state | `ABANDONED` | NOT_PLAYER, GAME_OVER |
 | `dsa_get_revealed_path(p_session_id uuid)` | players | jsonb (below) | Live steps, the game's stats, and the secret after `DISCOVERED`/`ABANDONED`. | NOT_PLAYER |
 | `dsa_list_names(p_graph_slug text)` | any signed-in user | `text[]` | Sorted distinct CHARACTER labels, character names and aliases. No structure. | NOT_AUTHENTICATED, GRAPH_NOT_FOUND |
+| `dsa_tireur_ready(p_session_id uuid)` | TIREUR | jsonb state | (0008) Ends a room's "Tireur first" phase: sets `tireur_ready_at` once and records a `SYSTEM` move `{"event": "TIREUR_READY"}`. Calling it again changes nothing. Only once both players are there (status PLAYING). Other modes are ready from creation, so it is a no-op there. | NOT_PLAYER, WRONG_ROLE, GAME_OVER, WAITING_FOR_PLAYER |
+| `dsa_rematch(p_session_id uuid, p_swap_roles boolean default false)` | a human player of that finished HUMAN_VS_HUMAN session | `table(session_id uuid, room_code text, role text)` | (0008) "Rejouer". First call: a new WAITING room on the same graph with the same settings and the caller's display name, `rematch_of` = the old session; the caller keeps their role, or takes the other one with `p_swap_roles`. Later calls (the other player accepting, or both pressing "Rejouer" at once): join that open rematch and take the free role (`p_swap_roles` is ignored); the game starts. The old session row is locked, so two calls can't create two rooms. Only players of the old session can reach the new room this way. | NOT_PLAYER, WRONG_MODE, GAME_NOT_OVER, ROOM_FULL, GRAPH_NOT_FOUND, NO_PLAYABLE_SECRET, ROOM_CODE_EXHAUSTED |
+
+**0008 changes to existing RPCs:**
+- `dsa_create_session` and `dsa_join_session` first run `dsa_cleanup_stale_sessions()` (below), so a room that went idle is closed and its code is free again. A join refused with `DSA_ROOM_NOT_FOUND` rolls back that cleanup with the rest of the call; the next successful create/join (or the cron job) closes the room for good.
+- `dsa_ask` and `dsa_guess` raise `DSA_TIREUR_NOT_READY` in a PLAYING HUMAN_VS_HUMAN room whose Tireur has not called `dsa_tireur_ready`. `DSA_GAME_OVER` is checked first.
 
 All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
 
@@ -258,7 +266,9 @@ All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
     { "role": "TIREUR", "display_name": "Awa", "is_ai": false, "is_me": false },
     { "role": "DECOUVREUR", "display_name": "Bill", "is_ai": false, "is_me": true }
   ],
-  "settings": { "input_mode": "BUTTONS" }
+  "settings": { "input_mode": "BUTTONS" },
+  "tireur_ready": true,
+  "room_code": "DSA-1234"
 }
 ```
 
@@ -271,6 +281,8 @@ All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
   - `node_type`: the prompt node's type (`QUESTION`, `CATEGORY`, `GROUP` for TOME/CLASSE, `CHARACTER` for a clue);
   - `target_text`: SPINE only, the prompt text of the node the answer entered (`LIE A DAVID` after `LIVRE DE SAMUEL = OUIOUIOUI`); `null` for CHILD. It goes through `dsa_prompt_text`, so a CHARACTER target would show its clue, never its name.
 - `settings` (0006): the session settings, so the second player of a room reads the creator's choices.
+- `tireur_ready` (0008): `false` only while a room's Tireur is still looking at the card. Clients show the Tireur the card and "Je suis prêt", and the Découvreur "Le Tireur découvre sa carte…". It says nothing about the card.
+- `room_code` (0008): the room's `DSA-####` code (players can already read it from `game_sessions`). The lobby shows it, and the room's Realtime channel is `room:<room_code>`.
 
 ### `dsa_get_revealed_path` JSON
 
@@ -299,6 +311,23 @@ All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
 - **Transitions:** `dsa_do_ask`, `dsa_do_answer`, `dsa_do_guess`, `dsa_do_confirm_guess`, `dsa_do_go_back`, `dsa_do_rewind`, `dsa_do_truncate`.
 - **Plumbing:** `dsa_state_json`, `dsa_path_json`, `dsa_require_player`, …
 - **0006:** `dsa_has_homonyms(node_id)`, `dsa_game_stats(session_id)`, `dsa_normalize_settings(jsonb)`.
+- **0008:** `dsa_new_session(...)` (the body of session creation, shared by `dsa_create_session` and `dsa_rematch`), `dsa_assert_tireur_ready(session)`, and `dsa_cleanup_stale_sessions(p_idle interval default '6 hours')`.
+
+### Stale rooms (0008)
+
+`dsa_cleanup_stale_sessions(p_idle)` closes open sessions (`WAITING`/`READY`/`PLAYING`) whose `updated_at` is older than `p_idle` (default 6 hours, at least 1 minute): status `ABANDONED`, `awaiting = NONE`, `ended_at = now()`, plus a `SYSTEM` move `{"event": "ABANDONED", "reason": "IDLE"}`. Finished sessions are never touched. It uses the partial index `game_sessions_open_updated_at_idx`, handles at most 500 sessions per call, skips rows another transaction holds, and returns how many it closed. It is not granted to clients.
+
+It already runs at the start of every `dsa_create_session`, `dsa_join_session` and `dsa_rematch`. **Optional:** to also close rooms when nobody creates or joins a game, schedule it with pg_cron:
+
+1. Dashboard → **Integrations** → **Cron** → enable it (this installs the `pg_cron` extension).
+2. **Create job**: name `dsa-cleanup-stale-sessions`, schedule `17 * * * *` (every hour), type **SQL snippet**, command `select public.dsa_cleanup_stale_sessions();`.
+
+   The same thing from the SQL Editor, once pg_cron is enabled:
+
+   ```sql
+   select cron.schedule('dsa-cleanup-stale-sessions', '17 * * * *', $$select public.dsa_cleanup_stale_sessions()$$);
+   -- to remove it: select cron.unschedule('dsa-cleanup-stale-sessions');
+   ```
 
 EXECUTE is revoked from `public`, `anon` and `authenticated` for all of these.
 
@@ -315,7 +344,13 @@ EXECUTE is revoked from `public`, `anon` and `authenticated` for all of these.
     .subscribe();
   ```
 
-- **WebRTC signaling** uses a Realtime **broadcast** channel named `room:<ROOM_CODE>` (for example `room:DSA-1234`), with events `offer`, `answer`, `ice` and `hangup`. Nothing is stored in the database.
+- **The room channel** `room:<ROOM_CODE>` (for example `room:DSA-1234`, public, not stored in the database) carries:
+  - **presence** (0008, `apps/mobile/src/rooms/room-channel.ts`): each device tracks `{role, name, activity: "active" | "away", at}`. The lobby shows each seat as connected, away (app in the background) or disconnected;
+  - **broadcast** `rematch` `{old_session_id, session_id, room_code, swap, from_role, from_name}` and `rematch_declined` `{old_session_id, session_id, from_name}`. An offer is only a hint: accepting it calls `dsa_rematch(old_session_id, swap)`, which checks that the caller played in that session;
+  - **WebRTC signaling** (S7c): events `offer`, `answer`, `ice` and `hangup`, on the same channel, which the app has already joined for presence.
+
+  Anyone who knows a room code can join this public channel, so nothing on it is trusted for the game itself (see S6 report, open questions).
+- **The app's game subscription** (0008, `SupabaseGameService.subscribe`) uses its own channel per session (`game:<session_id>:<n>`) with the three `postgres_changes` bindings above. Events are debounced (150 ms) into one `dsa_get_state`, and while the channel is not `SUBSCRIBED` the app polls every 5 s instead.
 
 ---
 
@@ -351,6 +386,7 @@ In the left sidebar open **SQL Editor** → **New query**. For each file below, 
 
 1. `supabase/sql-editor/00_all_migrations.sql`: expect "Success. No rows returned".
    - **A project that already ran an older `00`** (before the game UX update) runs `supabase/sql-editor/03_game_ux.sql` instead, then `90`. Running the new `00` again also works.
+   - **A project that already ran `00` before the rooms update** runs `supabase/sql-editor/05_rooms.sql` (after `03` if it needed that), then `90`. `05` stops with a clear message if `03` is missing.
 2. `supabase/sql-editor/01_seed_mini_graph.sql`: expect one row `mini_nodes 30 · mini_edges 29 · mini_characters 12`.
 3. `supabase/sql-editor/90_tests.sql`: expect one row **`ALL DSA TESTS PASSED`**. It takes a few seconds and changes nothing (it rolls back).
 
@@ -393,6 +429,13 @@ In Vercel: Project → **Settings → Environment Variables**. Add the two publi
 | `DSA TEST SETUP: run 00_all_migrations.sql first` / `run 01_seed_mini_graph.sql first` | Run the files in order: 00, 01, then 90. |
 | `DSA TEST SETUP: this project predates the game UX update; run 03_game_ux.sql …` | The project was set up with an older `00`. Run `03_game_ux.sql`, then `90` again. |
 | App: `DSA_INVALID_SETTINGS` | `p_settings` has an unknown key, or `input_mode` is not `VOICE`/`BUTTONS`. |
+| `DSA TEST SETUP: this project predates the rooms update; run 05_rooms.sql …` | Run `05_rooms.sql`, then `90` again. |
+| `DSA SETUP: this project predates the game UX update; run 03_game_ux.sql first, then this file again` (05) | Run `03_game_ux.sql`, then `05_rooms.sql` again. |
+| App: `DSA_TIREUR_NOT_READY` | The Découvreur acted before the Tireur said "Je suis prêt" (a stale screen). The app waits for the push; it resolves itself. |
+| App: `DSA_WAITING_FOR_PLAYER` | `dsa_tireur_ready` was called before the second player joined. |
+| App: `DSA_GAME_NOT_OVER` | `dsa_rematch` on a game that is still being played. |
+| App: "Could not find the function public.dsa_tireur_ready" | `05_rooms.sql` has not been run on this project. |
+| Rooms: presence never shows the other player | Realtime is blocked (network or firewall). The game still works: it polls every 5 s and shows "Connexion perdue… reconnexion". |
 | `DSA TEST FAILED [<scenario>]: …` | A rule or policy doesn't behave as the spec says. Nothing was saved (rollback). Copy the full message into the report for the lead. |
 | `DSA TESTS DID NOT COMPLETE` | An error stopped the script before the end. Look for the first error above it. |
 | `relation "auth.users" does not exist` | You're not in a Supabase project's SQL Editor (or it's a plain Postgres). The migrations need Supabase Auth. |
