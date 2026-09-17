@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return (
@@ -114,22 +114,53 @@ export function ReadOnly({ label, children }: { label: string; children: ReactNo
   );
 }
 
-/** A comma- or newline-separated list edited as text, stored as a string array. */
-export function ListField({ label, values, onChange, hint }: { label: string; values: string[]; onChange: (values: string[]) => void; hint?: ReactNode }) {
+/**
+ * A list edited one entry per line, stored as a string array. The raw text is
+ * kept locally so a trailing newline survives while typing; it is re-read from
+ * `values` whenever they change from outside (undo, another selection).
+ */
+export function ListField({
+  label,
+  values,
+  onChange,
+  hint,
+  commitOnBlur,
+}: {
+  label: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  hint?: ReactNode;
+  /** For lists whose lines are parsed and may be dropped while half-typed. */
+  commitOnBlur?: boolean;
+}) {
+  const joined = values.join('\n');
+  const [text, setText] = useState(joined);
+  const [synced, setSynced] = useState(joined);
+  if (joined !== synced) {
+    setSynced(joined);
+    setText(joined);
+  }
+  const commit = (next: string) => {
+    const parsed = next
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    setSynced(parsed.join('\n'));
+    if (parsed.join('\n') !== joined) onChange(parsed);
+  };
   return (
     <Field label={label} hint={hint}>
       <textarea
         className="field book resize-y text-[14px]"
         rows={2}
-        value={values.join('\n')}
-        onChange={(e) =>
-          onChange(
-            e.target.value
-              .split('\n')
-              .map((line) => line.trim())
-              .filter((line) => line.length > 0),
-          )
-        }
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (!commitOnBlur) commit(e.target.value);
+        }}
+        onBlur={(e) => {
+          if (commitOnBlur) commit(e.target.value);
+        }}
       />
     </Field>
   );

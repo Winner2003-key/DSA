@@ -68,11 +68,19 @@ interface EditorState {
   updateEdge(id: string, patch: Partial<GraphEdge>, mergeKey?: string): void;
   updateCharacter(id: string, patch: Partial<BibleCharacter>, mergeKey?: string): void;
   addCharacter(character: BibleCharacter): void;
+  /**
+   * Edits what the Tireur's card shows for this leaf: the character's
+   * description, mirrored on every CHARACTER node of that character, with
+   * `metadata.description_edited = true` on all of them so the importer keeps
+   * the text (IMPORT_GUIDE §8). A leaf with no character only changes itself.
+   */
+  setCardDescription(nodeId: string, description: string | null, mergeKey?: string): void;
 
   addChild(parentId: string, init: NewChildInit): string | null;
   deleteNode(id: string): void;
   moveNode(id: string, position: XY): void;
-  applyPositions(positions: Map<string, XY>): void;
+  /** Forgets hand-placed positions, so those cards fall back to the automatic layout. */
+  clearPositions(ids: Iterable<string>): void;
   connect(fromId: string, toId: string): string | null;
   deleteEdge(id: string): void;
   /** Moves an edge one step earlier or later among its siblings, renumbering them 0..n-1. */
@@ -168,6 +176,29 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       });
     },
 
+    setCardDescription(nodeId, description, mergeKey) {
+      const present = get().present;
+      const leaf = present?.nodes.find((node) => node.id === nodeId);
+      if (!present || !leaf) return;
+      const text = description !== null && description.trim() === '' ? null : description;
+      const characterId = leaf.characterId;
+      const character = characterId ? present.characters.find((candidate) => candidate.id === characterId) : undefined;
+      commit((draft) => {
+        if (character) {
+          draft.characters = draft.characters.map((candidate) =>
+            candidate.id === character.id
+              ? { ...candidate, description: text, metadata: { ...candidate.metadata, description_edited: true } }
+              : candidate,
+          );
+        }
+        draft.nodes = draft.nodes.map((node) =>
+          node.id === nodeId || (character && node.characterId === character.id && node.nodeType === 'CHARACTER')
+            ? { ...node, description: text, metadata: { ...node.metadata, description_edited: true } }
+            : node,
+        );
+      }, mergeKey);
+    },
+
     addChild(parentId, init) {
       const present = get().present;
       if (!present) return null;
@@ -237,12 +268,14 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       get().updateNode(id, { positionX: round(position.x), positionY: round(position.y) }, `move:${id}`);
     },
 
-    applyPositions(positions) {
+    clearPositions(ids) {
+      const wanted = new Set(ids);
+      const present = get().present;
+      if (!present || !present.nodes.some((node) => wanted.has(node.id) && (node.positionX !== null || node.positionY !== null))) return;
       commit((draft) => {
-        draft.nodes = draft.nodes.map((node) => {
-          const position = positions.get(node.id);
-          return position ? { ...node, positionX: round(position.x), positionY: round(position.y) } : node;
-        });
+        draft.nodes = draft.nodes.map((node) =>
+          wanted.has(node.id) && (node.positionX !== null || node.positionY !== null) ? { ...node, positionX: null, positionY: null } : node,
+        );
       });
     },
 

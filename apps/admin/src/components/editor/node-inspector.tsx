@@ -18,6 +18,8 @@ export function NodeInspector({ node, onJump }: { node: GraphNode; onJump: (node
   const addChild = useEditorStore((s) => s.addChild);
   const deleteNode = useEditorStore((s) => s.deleteNode);
   const addCharacter = useEditorStore((s) => s.addCharacter);
+  const updateCharacter = useEditorStore((s) => s.updateCharacter);
+  const setCardDescription = useEditorStore((s) => s.setCardDescription);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [adding, setAdding] = useState(false);
 
@@ -53,11 +55,13 @@ export function NodeInspector({ node, onJump }: { node: GraphNode; onJump: (node
         />
         <TextArea
           label="Description (carte du Tireur)"
-          value={node.description ?? ''}
+          // The card shows the character's description, falling back to the node's (dsa_get_my_secret).
+          value={character?.description ?? node.description ?? ''}
           book
           rows={2}
           placeholder="Le révolté · NÉS À HÉBRON"
-          onChange={(description) => patch({ description: description.trim() === '' ? null : description }, `description:${node.id}`)}
+          // One field for both rows, flagged so the importer keeps the text (IMPORT_GUIDE §8).
+          onChange={(description) => setCardDescription(node.id, description, `description:${node.id}`)}
         />
         {node.nodeType === 'GROUP' && (
           <SelectField
@@ -91,6 +95,7 @@ export function NodeInspector({ node, onJump }: { node: GraphNode; onJump: (node
             characters={present?.characters ?? []}
             selected={character}
             onAssign={(characterId) => patch({ characterId })}
+            onEdit={(id, fields, mergeKey) => updateCharacter(id, fields, mergeKey)}
             onCreate={() => {
               const created: BibleCharacter = {
                 id: crypto.randomUUID(),
@@ -212,11 +217,13 @@ function CharacterPicker({
   characters,
   selected,
   onAssign,
+  onEdit,
   onCreate,
 }: {
   characters: readonly BibleCharacter[];
   selected: BibleCharacter | null;
   onAssign: (id: string | null) => void;
+  onEdit: (id: string, fields: Partial<BibleCharacter>, mergeKey?: string) => void;
   onCreate: () => void;
 }) {
   const [term, setTerm] = useState('');
@@ -228,7 +235,14 @@ function CharacterPicker({
         <div className="rounded-sm border border-rule bg-surface-sunk px-2 py-1.5">
           <div className="book text-[14px] font-medium">{selected.name}</div>
           {selected.description && <div className="book text-[12px] italic text-ink-soft">{selected.description}</div>}
-          {selected.aliases.length > 0 && <div className="mt-0.5 text-[11px] text-ink-faint">Alias : {selected.aliases.join(', ')}</div>}
+          <div className="mt-2 space-y-2">
+            <ListField
+              label="Alias"
+              values={selected.aliases}
+              onChange={(aliases) => onEdit(selected.id, { aliases, metadata: { ...selected.metadata, aliases_edited: true } }, `aliases:${selected.id}`)}
+              hint="Un par ligne. Un alias n’est jamais accepté comme bonne réponse."
+            />
+          </div>
           <button type="button" className="mt-1 text-[11px] text-rejected underline-offset-2 hover:underline" onClick={() => onAssign(null)}>
             Détacher
           </button>

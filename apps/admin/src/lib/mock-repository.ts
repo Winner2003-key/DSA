@@ -3,8 +3,9 @@
  * It lets the editor and the review page run with no Supabase project, which is
  * how the screenshots in `docs/sessions/reports/S5-screens/` were taken.
  *
- * State lives in module memory, so it is per process: a save is visible while
- * the tab stays open, and is lost on reload. Never enabled in a production
+ * State lives in process memory: on the server it lasts until `next dev`
+ * restarts; in the browser (the editor loads and saves there) it lasts until
+ * the tab reloads, so an editor save is not seen by the server-rendered pages. Never enabled in a production
  * build (see `MOCK_MODE` in `env.ts`).
  */
 import type { GraphData, GraphStatus, ReviewStatus } from '@dsa/core';
@@ -16,10 +17,15 @@ import { RepositoryError } from './graph-repository';
 /** Pages left mid-review in the fixture, so the review screens have real work on them. */
 const PENDING_PAGES = new Set([34, 41]);
 
-let cache: GraphData | null = null;
+/**
+ * Kept on `globalThis`, not in a module variable: in dev, Next bundles server
+ * actions and server components as separate module instances, and a publish or
+ * page approval must be visible on the page that re-renders afterwards.
+ */
+const holder = globalThis as typeof globalThis & { __dsaMockGraph?: GraphData };
 
 async function loadFixture(): Promise<GraphData> {
-  if (cache) return cache;
+  if (holder.__dsaMockGraph) return holder.__dsaMockGraph;
   const module = await import('@dsa/core/fixtures/mini-graph.json');
   const data = structuredClone((module.default ?? module) as unknown as GraphData);
   for (const node of data.nodes) {
@@ -32,7 +38,7 @@ async function loadFixture(): Promise<GraphData> {
     if (edge.sourcePage !== null && PENDING_PAGES.has(edge.sourcePage)) edge.reviewStatus = 'NEEDS_REVIEW';
   }
   data.graph = { ...data.graph, name: 'DSA mini (démonstration)', status: 'DRAFT' };
-  cache = data;
+  holder.__dsaMockGraph = data;
   return data;
 }
 

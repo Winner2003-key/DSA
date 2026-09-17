@@ -3,7 +3,8 @@
 import type { GraphStatus } from '@dsa/core';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
-import { publishGraph, unpublishGraph, type PublishResult } from '../app/graphes/actions';
+import { publishGraph, unpublishGraph } from '../app/graphes/actions';
+import type { PublishResult } from '../lib/publish';
 
 export function PublishControls({ slug, status }: { slug: string; status: GraphStatus }) {
   const router = useRouter();
@@ -17,7 +18,7 @@ export function PublishControls({ slug, status }: { slug: string; status: GraphS
         setResult(next);
         if (next.ok) router.refresh();
       } catch (error) {
-        setResult({ ok: false, message: error instanceof Error ? error.message : String(error), errors: [], report: null });
+        setResult({ ok: false, title: 'Action impossible', message: error instanceof Error ? error.message : String(error), errors: [], report: null });
       }
     });
   }
@@ -38,7 +39,7 @@ export function PublishControls({ slug, status }: { slug: string; status: GraphS
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/25 p-6" role="dialog" aria-modal="true">
           <div className="panel max-h-[80vh] w-full max-w-2xl overflow-auto rounded-md p-5 text-left shadow-lg">
             <h2 className={`text-[15px] font-semibold ${result.ok ? 'text-approved' : 'text-rejected'}`}>
-              {result.ok ? 'Publication effectuée' : 'Publication refusée'}
+              {result.title}
             </h2>
             <p className="mt-1 text-ink-soft">{result.message}</p>
 

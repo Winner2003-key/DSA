@@ -95,6 +95,7 @@ export function EdgeInspector({ edge, onJump }: { edge: GraphEdge; onJump: (node
       <Section title="Source">
         <NumberField label="Page du PDF" value={edge.sourcePage} onChange={(sourcePage) => patch({ sourcePage })} />
         <ListField
+          commitOnBlur
           label="Variantes du code"
           values={(edge.metadata.source_variants ?? []).map((variant) => `${variant.label} (p. ${variant.page})`)}
           onChange={(values) =>

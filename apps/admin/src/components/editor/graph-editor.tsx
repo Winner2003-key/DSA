@@ -15,6 +15,7 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import Link from 'next/link';
+import { GuardedLink } from '../guarded-link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RepositoryError } from '../../lib/graph-repository';
 import { NODE_HEIGHT, NODE_WIDTH, layoutDagre, layoutTree, resolvePosition } from '../../lib/layout';
@@ -39,15 +40,15 @@ const VIRTUALIZE_ABOVE = 200;
 
 type Tab = 'properties' | 'validation' | 'preview';
 
-export function GraphEditor({ slug }: { slug: string }) {
+export function GraphEditor({ slug, initialNodeId }: { slug: string; initialNodeId: string | null }) {
   return (
     <ReactFlowProvider>
-      <EditorBody slug={slug} />
+      <EditorBody slug={slug} initialNodeId={initialNodeId} />
     </ReactFlowProvider>
   );
 }
 
-function EditorBody({ slug }: { slug: string }) {
+function EditorBody({ slug, initialNodeId }: { slug: string; initialNodeId: string | null }) {
   const flow = useReactFlow();
   const load = useEditorStore((s) => s.load);
   const present = useEditorStore((s) => s.present);
@@ -59,7 +60,7 @@ function EditorBody({ slug }: { slug: string }) {
   const canUndo = useEditorStore((s) => s.past.length > 0);
   const canRedo = useEditorStore((s) => s.future.length > 0);
   const moveNode = useEditorStore((s) => s.moveNode);
-  const applyPositions = useEditorStore((s) => s.applyPositions);
+  const clearPositions = useEditorStore((s) => s.clearPositions);
   const connect = useEditorStore((s) => s.connect);
   const markSaved = useEditorStore((s) => s.markSaved);
 
@@ -73,7 +74,9 @@ function EditorBody({ slug }: { slug: string }) {
   const [toast, setToast] = useState<string | null>(null);
   const [term, setTerm] = useState('');
   const [highlight, setHighlight] = useState<Set<string>>(new Set());
-  const fitted = useRef(false);
+  const [layoutMode, setLayoutMode] = useState<'tree' | 'dagre'>('tree');
+  /** A node to centre on once the canvas has the new slice, instead of fitting the view. */
+  const pendingCenter = useRef<string | null>(null);
 
   // ---- loading ------------------------------------------------------------
   useEffect(() => {
@@ -85,8 +88,18 @@ function EditorBody({ slug }: { slug: string }) {
         const data = await repository.loadGraph(slug);
         if (cancelled) return;
         load(data);
+        const requested = initialNodeId ? data.nodes.find((node) => node.id === initialNodeId) : undefined;
         const start = data.nodes.find((node) => node.nodeType === 'START') ?? data.nodes[0];
-        setFocusRootId(start?.id ?? null);
+        if (requested) {
+          // Focus on the parent, so the node arrives with its siblings around it.
+          const parentEdge = data.edges.find((edge) => edge.toNodeId === requested.id);
+          setFocusRootId(parentEdge?.fromNodeId ?? requested.id);
+          select({ kind: 'node', id: requested.id });
+          setHighlight(new Set([requested.id]));
+          pendingCenter.current = requested.id;
+        } else {
+          setFocusRootId(start?.id ?? null);
+        }
         setLoadError(null);
       } catch (error) {
         if (!cancelled) setLoadError(error instanceof RepositoryError ? error.message : String(error));
@@ -97,21 +110,11 @@ function EditorBody({ slug }: { slug: string }) {
     return () => {
       cancelled = true;
     };
+    // The requested node only matters on first load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, load]);
 
   const tree = useMemo(() => buildTree(present?.nodes ?? [], present?.edges ?? []), [present?.nodes, present?.edges]);
-
-  // Fallback coordinates for nodes the importer never positioned. Recomputed
-  // only when the structure changes, not on every text edit.
-  const structureKey = useMemo(
-    () => `${present?.nodes.length ?? 0}:${present?.edges.map((e) => `${e.id}:${e.orderIndex}`).join() ?? ''}`,
-    [present?.nodes.length, present?.edges],
-  );
-  const fallback = useMemo(
-    () => layoutTree(present?.nodes ?? [], present?.edges ?? []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [structureKey],
-  );
 
   const diff = useMemo(() => draftDiff(baseline, present), [baseline, present]);
   const dirty = (diff?.nodes.created.length ?? 0) + (diff?.nodes.updated.length ?? 0) + (diff?.nodes.deleted.length ?? 0) +
@@ -151,8 +154,33 @@ function EditorBody({ slug }: { slug: string }) {
   const visibleIds = useMemo(() => {
     if (!present) return new Set<string>();
     if (wholeGraph || !focusRootId) return new Set(present.nodes.map((node) => node.id));
-    return subtreeIds(tree, focusRootId, depth);
+    // The focused node may just have been deleted (or undone away): fall back to the root.
+    const root = tree.nodesById.has(focusRootId) ? focusRootId : tree.rootId;
+    return root ? subtreeIds(tree, root, depth) : new Set<string>();
   }, [present, wholeGraph, focusRootId, depth, tree]);
+
+  // Automatic coordinates for cards nobody has placed by hand (the importer
+  // never sets positions). They are computed for the slice on screen, not the
+  // whole book: laid out globally, three levels under a spine question would be
+  // spread across the width of 1,200 leaves. Recomputed only when the slice's
+  // structure changes, never on a text edit.
+  const sliceKey = useMemo(() => {
+    if (!present) return '';
+    const edges = present.edges
+      .filter((edge) => visibleIds.has(edge.fromNodeId) && visibleIds.has(edge.toNodeId))
+      .map((edge) => `${edge.id}:${edge.orderIndex}`)
+      .join();
+    return `${layoutMode}|${[...visibleIds].join()}|${edges}`;
+  }, [present, visibleIds, layoutMode]);
+  const fallback = useMemo(
+    () => {
+      const nodes = (present?.nodes ?? []).filter((node) => visibleIds.has(node.id));
+      const edges = (present?.edges ?? []).filter((edge) => visibleIds.has(edge.fromNodeId) && visibleIds.has(edge.toNodeId));
+      return layoutMode === 'dagre' ? layoutDagre(nodes, edges) : layoutTree(nodes, edges);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sliceKey],
+  );
 
   const rfNodes = useMemo<NodeCardType[]>(() => {
     if (!present) return [];
@@ -194,28 +222,35 @@ function EditorBody({ slug }: { slug: string }) {
   }, [present, visibleIds, selection]);
 
   // ---- navigation ---------------------------------------------------------
+  /** Reads the position React Flow is actually rendering, so it is never stale after a focus change. */
   const centerOn = useCallback(
     (nodeId: string) => {
-      const node = tree.nodesById.get(nodeId);
-      if (!node) return;
-      const position = resolvePosition(node, fallback);
-      flow.setCenter(position.x + NODE_WIDTH / 2, position.y + NODE_HEIGHT / 2, { zoom: Math.max(flow.getZoom(), 0.75), duration: 300 });
+      const rendered = flow.getNode(nodeId);
+      if (!rendered) return false;
+      flow.setCenter(rendered.position.x + NODE_WIDTH / 2, rendered.position.y + NODE_HEIGHT / 2, {
+        zoom: Math.min(1, Math.max(flow.getZoom(), 0.8)),
+        duration: 300,
+      });
+      return true;
     },
-    [flow, fallback, tree],
+    [flow],
   );
 
   const jumpTo = useCallback(
     (nodeId: string) => {
       select({ kind: 'node', id: nodeId });
       setTab('properties');
+      setHighlight(new Set([nodeId]));
       if (!wholeGraph && !visibleIds.has(nodeId)) {
-        // Open the focus on the node's parent, so the node arrives with context.
+        // Open the focus on the node's parent, so the node arrives with context;
+        // the view effect below centres on it once the slice is rendered.
         const chain = ancestorChain(tree, nodeId);
         const anchor = chain[Math.max(0, chain.length - 2)];
+        pendingCenter.current = nodeId;
         setFocusRootId(anchor?.id ?? nodeId);
+      } else {
+        window.setTimeout(() => centerOn(nodeId), 30);
       }
-      setHighlight(new Set([nodeId]));
-      window.setTimeout(() => centerOn(nodeId), 60);
     },
     [select, wholeGraph, visibleIds, tree, centerOn],
   );
@@ -228,12 +263,18 @@ function EditorBody({ slug }: { slug: string }) {
     [present, jumpTo],
   );
 
+  // Whenever the slice changes, frame it — or the node a jump is waiting for.
+  const hasNodes = rfNodes.length > 0;
   useEffect(() => {
-    if (!fitted.current && rfNodes.length > 0) {
-      fitted.current = true;
-      window.setTimeout(() => flow.fitView({ padding: 0.2, duration: 0 }), 30);
-    }
-  }, [rfNodes.length, flow]);
+    if (!hasNodes) return undefined;
+    const timer = window.setTimeout(() => {
+      const target = pendingCenter.current;
+      pendingCenter.current = null;
+      if (target && centerOn(target)) return;
+      void flow.fitView({ padding: 0.15, maxZoom: 1, duration: 200 });
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [hasNodes, focusRootId, depth, wholeGraph, layoutMode, flow, centerOn]);
 
   // ---- search -------------------------------------------------------------
   const nodeHits = useMemo(() => searchNodes(present?.nodes ?? [], term, 8), [present, term]);
@@ -261,9 +302,9 @@ function EditorBody({ slug }: { slug: string }) {
     <div className="flex h-full min-h-0 flex-col">
       {/* --- command bar --- */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule bg-surface px-3 py-2">
-        <Link href="/graphes" className="text-ink-faint hover:text-ink" title="Retour aux graphes">
+        <GuardedLink href="/graphes" className="text-ink-faint hover:text-ink" title="Retour aux graphes">
           ←
-        </Link>
+        </GuardedLink>
         <span className="font-medium">{present.graph.name}</span>
         <span className="text-ink-faint">{present.graph.slug}</span>
 
@@ -320,22 +361,35 @@ function EditorBody({ slug }: { slug: string }) {
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <GuardedLink href={`/graphes/${present.graph.slug}/revue`} className="btn">
+            Revue
+          </GuardedLink>
+          <GuardedLink href={`/graphes/${present.graph.slug}/homonymes`} className="btn">
+            Homonymes
+          </GuardedLink>
           <button type="button" className="btn" onClick={undo} disabled={!canUndo} title="Annuler (Ctrl+Z)">
             Annuler
           </button>
           <button type="button" className="btn" onClick={redo} disabled={!canRedo} title="Rétablir (Ctrl+Maj+Z)">
             Rétablir
           </button>
+          <select
+            className="field w-auto py-1.5"
+            value={layoutMode}
+            onChange={(event) => setLayoutMode(event.target.value as 'tree' | 'dagre')}
+            aria-label="Disposition automatique"
+            title="Disposition des cartes qui n’ont pas été placées à la main"
+          >
+            <option value="tree">Arbre du livre</option>
+            <option value="dagre">Couches (dagre)</option>
+          </select>
           <button
             type="button"
             className="btn"
-            onClick={() => applyPositions(layoutTree(present.nodes, present.edges))}
-            title="Replacer les cartes en arbre, enfants dans l’ordre du livre"
+            onClick={() => clearPositions(visibleIds)}
+            title="Oublier les positions placées à la main pour les cartes affichées"
           >
             Ranger
-          </button>
-          <button type="button" className="btn" onClick={() => applyPositions(layoutDagre(present.nodes, present.edges))} title="Disposition en couches (dagre)">
-            Couches
           </button>
           <button type="button" className="btn" onClick={() => exportJson(present)}>
             Exporter JSON
@@ -398,7 +452,7 @@ function EditorBody({ slug }: { slug: string }) {
             onlyRenderVisibleElements={rfNodes.length > VIRTUALIZE_ABOVE}
             minZoom={0.05}
             maxZoom={2}
-            proOptions={{ hideAttribution: true }}
+            attributionPosition="top-right"
             nodesDraggable
             elevateNodesOnSelect={false}
             onNodesChange={(changes: NodeChange<NodeCardType>[]) => {

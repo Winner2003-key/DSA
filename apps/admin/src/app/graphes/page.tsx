@@ -97,6 +97,9 @@ export default async function GraphesPage() {
                         <Link href={`/graphes/${graph.slug}/revue`} className="btn">
                           Revue
                         </Link>
+                        <Link href={`/graphes/${graph.slug}/homonymes`} className="btn">
+                          Homonymes
+                        </Link>
                         <PublishControls slug={graph.slug} status={graph.status} />
                       </div>
                     </td>

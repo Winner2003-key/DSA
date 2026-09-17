@@ -42,6 +42,7 @@ export function PreviewPanel({ onJump }: { onJump: (nodeId: string) => void }) {
   }
 
   const prompt = engine && state && state.status === 'PLAYING' ? engine.prompt(state) : null;
+  const reached = engine && state && state.status === 'PLAYING' ? index?.node(engine.position(state).nodeId) : undefined;
   const secret = state?.secretNodeId ? index?.node(state.secretNodeId) : undefined;
 
   return (
@@ -113,9 +114,26 @@ export function PreviewPanel({ onJump }: { onJump: (nodeId: string) => void }) {
                 </>
               )}
 
-              {state.awaiting === 'QUESTION' && !prompt && (
+              {state.awaiting === 'QUESTION' && !prompt && reached?.nodeType === 'CHARACTER' && (
+                <>
+                  <p className="rounded-sm border border-rule bg-surface px-2 py-1.5">
+                    Indice accepté. Le Découvreur doit maintenant dire le nom de la carte.
+                  </p>
+                  <button type="button" className="btn btn-primary w-full" onClick={() => run(() => engine.guess(state, reached.label))}>
+                    Appeler « {reached.label} »
+                  </button>
+                </>
+              )}
+
+              {state.awaiting === 'QUESTION' && !prompt && reached?.nodeType !== 'CHARACTER' && (
                 <p className="rounded-sm border border-review/40 bg-review-soft px-2 py-1.5 text-review">
                   Cul-de-sac : la liste est épuisée. Le Découvreur doit revenir en arrière.
+                </p>
+              )}
+
+              {state.awaiting === 'GUESS_CONFIRM' && (
+                <p className="rounded-sm border border-rule bg-surface px-2 py-1.5">
+                  Nom appelé : <span className="book font-semibold">{state.pendingGuess}</span>. Réponse du Tireur ?
                 </p>
               )}
 
