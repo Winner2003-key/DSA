@@ -39,6 +39,6 @@ Sessions in the same wave can run **at the same time**, because they own separat
 | any | S5b | `S5b-admin-homonyms.md`: the Homonymes page (descriptions for people sharing a name, with a Tireur card preview) | `apps/admin/` | ✅ done, reviewed, committed |
 | 5 | S9 | `S9-timed-games.md`: **optional** timer (checkbox, 40 s thinking + 120 s game, admin Réglages), Tireur can change the name max 2×, the book's path shown when the name wasn't found | `supabase/` 0009 / `06_timer.sql`, `apps/mobile/`, `apps/admin/` Réglages, additive core | ▶ **ready now** |
 
-**Backlog of owner remarks** (rewind to the opening question, icons, African-accented voice, app settings, hands-free voice-first play): `docs/sessions/BACKLOG.md`.
+**Backlog of owner remarks** (rewind to the opening question, icons, African-accented voice, app settings, hands-free voice-first play, admin pronunciation, practising a part of the book): `docs/sessions/BACKLOG.md`.
 
 SQL files for the dashboard, in the order the owner pastes them: `00` → `01` → (`90` tests) → `02` admin → `03_game_ux` (S3b) → `04_voice` (S7a) → `05_rooms` (S6) → `06_timer` (S9) → later files. Every session's report says exactly which file is new.

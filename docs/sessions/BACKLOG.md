@@ -70,9 +70,34 @@ Directions to design in a dedicated session (after S7c live voice):
 
 ---
 
+## B6 — Admin-editable pronunciation of names and labels (owner, 2026-09-17; minor)
+
+- **Problem:** the phone's text-to-speech mispronounces some Bible names and book labels. Players should hear the **correct** pronunciation, because they learn from it.
+- **Feasible, with no game-rule change:**
+  - Store the pronunciations in the database: a table `pronunciations (term, spoken_form, note, updated_by)`, or a `pronunciation` field on `bible_characters` and on question nodes. `spoken_form` is a **phonetic respelling** that every text-to-speech engine understands (for example a name written the way it sounds in French). Phoneme markup isn't reliably supported by phone voices, so respelling is the portable choice.
+  - The admin gets a **Prononciation** page: search a name or label, type the respelling, press **Écouter** to hear it (browser speech), save. Names shared by several people (Homonymes) can differ if needed.
+  - The app downloads the list once per session, through an RPC that returns only terms and respellings, no graph structure and no secrets. It applies them in `speakablePrompt` / `speakableAnswer` on top of the built-in lexicon (`packages/voice/src/lexicon.fr.ts`).
+  - The on-screen text always keeps the book's spelling; only the spoken form changes.
+  - Later, recorded human voices (B3) can take priority over respellings for the most important names.
+
+## B7 — Practice a part of the book (owner, 2026-09-17)
+
+- **Goal:** before starting a game (alone with the app, two on one phone, or a room), players can choose to **practise only one part of the book**: for example only the Nouveau Testament, only the Pentateuque, only the women of the historical books, only "Lié à David".
+- **Feasible, and it keeps the learning value:**
+  - "Préparer la partie" (and room creation, where the creator decides) gets **« Tout le livre »** (default) or **« Choisir une partie »**, which opens a picker of the book's sections as a tree: Ancien / Nouveau → Homme / Femme → sections and sub-sections. Several can be ticked, and each shows its number of names.
+  - Only the **drawn name** is restricted: the server picks the secret among playable names **inside the chosen sections**, and name changes (S9) also stay inside them.
+  - **The questions still start from the beginning** ("ANCIEN ?", "HOMME ?"…), so players keep learning the whole path to that part of the book. The end screen's book path (S9) shows it.
+  - Stored in `game_sessions.settings.scope` (validated server-side: approved section nodes only, at least one playable name). A rematch keeps the scope.
+  - A new RPC lists the **sections only** (label, parent, number of names), never the names or clues, so the picker reveals nothing a player couldn't see in the book's table of contents.
+  - It works with AI modes, rooms, the timer and the offline service.
+  - Nice to have: an optional "Mes parties préférées" list in the app settings (B4).
+
+---
+
 ## Planned order (proposal, to confirm with the owner)
 1. S9 (timer, running or ready)
 2. S7c (live voice between phones)
-3. **S10:** B1 (rewind rule), B2 (icons), B4 (settings) and the device-voice part of B3
-4. **S11:** B5 (hands-free voice-first play), with any cloud or recorded voice from B3
-5. S8 (security and release readiness)
+3. **S10:** app experience: B2 (icons), B4 (settings screen), B3 device voices (male/female, speed), B6 (admin pronunciation and its use in the app)
+4. **S11:** game rules: B1 (QUESTION goes back to the question that opened the list) and B7 (practise a part of the book)
+5. **S12:** B5 (hands-free, voice-first play), with any cloud or recorded voice from B3
+6. S8 (security and release readiness)
