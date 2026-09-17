@@ -47,6 +47,8 @@ If the Découvreur named the wrong leaf, or reaches the end of a list without a 
 - The number of times tells the Découvreur **how many questions to go back**.
 - Those questions are asked again, and the Tireur gives the corrected answer.
 
+> **Planned change (owner, 2026-09-17; not implemented yet, see `docs/sessions/BACKLOG.md` B1):** "QUESTION ×N" will go back N **levels**, to the question that **opened** the current list (for example back to "1ère classe ?" while the Découvreur is asking the names inside it), not to the previous question. Until the session that implements B1, the current behaviour stays.
+
 ## 5. Truthful answers
 
 - An AI Tireur always answers correctly: the answer is computed from the secret and the graph.
