@@ -35,14 +35,12 @@ Sessions in the same wave can run **at the same time**, because they own separat
 | 5 | S7b | `S7b-voice-in-app.md`: speak to play (Expo Go and web), hold-to-talk, calibration screen, Voix mode, fallbacks | `apps/mobile/`, small `packages/voice` additions | ✅ done, reviewed, committed |
 | 6 | S7c | `S7c-live-voice.md`: live voice between players (WebRTC), TURN via Edge Function, dev build / APK | `apps/mobile/`, `supabase/functions/turn-credentials/` | after S9 (both own `apps/mobile`) |
 | **next** | **S10** | **`S10-ui-first.md`: UI pass over every screen, icons (B2), Réglages screen (B4), voice choice male/female + speed (B3). App only, no SQL** | `apps/mobile/` | ▶ **owner priority: start when S11 is done** |
-| 7 | S11 | `S11-rules-and-practice.md`: "QUESTION" goes back to the opening question (B1), practise one part of the book (B7) | `packages/core`, `supabase/`, `apps/mobile/`, GAME_RULES §4 + spec §2 | ▶ ready (one app session at a time) |
+| 7 | S11 | `S11-rules-and-practice.md`: "QUESTION" goes back to the opening question (B1), practise one part of the book (B7) | `packages/core`, `supabase/`, `apps/mobile/`, GAME_RULES §4 + spec §2 | 🟡 running |
 | 9 | S12 | `S12-hands-free.md`: hands-free voice-first play (B5, the main goal) | `apps/mobile/`, additive voice and core | after S7c |
 | 10 | S8 | `S8-hardening.md`: opaque ids, leak-proof tests, abuse limits, audit, accessibility, CI, full README, device test plan | all | after S7c (or S7b) |
 | any | S5 | `S5-admin.md`: Next.js admin, graph editor, import review, homonym descriptions, game settings | `apps/admin/` | ✅ done (features 1–4); Homonymes page → S5b; Réglages → S9 |
 | any | S5b | `S5b-admin-homonyms.md`: the Homonymes page (descriptions for people sharing a name, with a Tireur card preview) | `apps/admin/` | ✅ done, reviewed, committed |
-| 5 | S9 | `S9-timed-games.md`: **optional** timer (checkbox, 40 s thinking + 120 s game, admin Réglages), Tireur can change the name max 2×, the book's path shown when the name wasn't found | `supabase/` 0009 / `06_timer.sql`, `apps/mobile/`, `apps/admin/` Réglages, additive core | ▶ **ready now** |
-
-| later | S13 | `S13-admin-pronunciation.md`: admin-editable pronunciation (B6) | `apps/admin/`, SQL next free number | ⏸ deferred by the owner |
+| 5 | S9 | `S9-timed-games.md`: **optional** timer (checkbox, 40 s thinking + 120 s game, admin Réglages), Tireur can change the name max 2×, the book's path shown when the name wasn't found | `supabase/` 0009 / `06_timer.sql`, `apps/mobile/`, `apps/admin/` Réglages, additive core | ✅ done, committed by that session; paste `06_timer.sql` when ready |
 
 **Backlog of owner remarks** (rewind to the opening question, icons, African-accented voice, app settings, hands-free voice-first play, admin pronunciation, practising a part of the book): `docs/sessions/BACKLOG.md`.
 
