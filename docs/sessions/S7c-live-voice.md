@@ -4,10 +4,18 @@ You are a senior React Native engineer with WebRTC experience, on **DSA — Déc
 
 **Start only after S7b is finished.** Important: `react-native-webrtc` is native code, so **it does not run in Expo Go**. It needs an EAS **development build** or the **preview APK**. The web version uses the browser's WebRTC.
 
-## Read first, completely
-1. `docs/sessions/README.md`; `GAME_RULES.md`; `GRAPH_SPECIFICATION.md` (§1, §3 realtime and signaling, §10 credentials)
-2. Reports: `S6-rooms.md` (the room channel), `S7a-voice.md`, **`S7b-voice-app.md`** (microphone ownership notes)
-3. The current Expo docs for `expo-dev-client`, and the `@config-plugins/react-native-webrtc` compatibility table for SDK 57. **Check with WebFetch.**
+## Read first
+1. **`docs/sessions/CONTEXT.md`** — where the project stands. It replaces the old reports.
+2. **`docs/sessions/CHECKS.md`** — what to run and when. Follow it.
+3. `docs/sessions/README.md`: the global rules.
+4. `GRAPH_SPECIFICATION.md` §1, §3 (realtime and signaling) and §10 (credentials).
+5. The **microphone-ownership** section of `S7b-voice-app.md` and the room-channel section of
+   `S6-rooms.md` — those two sections only.
+6. The current Expo docs for `expo-dev-client`, and the `@config-plugins/react-native-webrtc`
+   compatibility table for SDK 57. **Check with WebFetch.**
+**Don't read the old reports end to end, and don't open the old screenshot folders.** If you
+need one decision's reasoning, read that report's §1 Files table or search it for the term.
+
 
 ## You own
 `apps/mobile/**`; `supabase/functions/turn-credentials/**` (optional, see step 4); `VOICE.md` (add a "Voix en direct" section).
@@ -38,8 +46,10 @@ You are a senior React Native engineer with WebRTC experience, on **DSA — Déc
    - behaviour when the app goes to the background.
 6. **EAS build instructions** for the owner: `npm install -g eas-cli`, `eas login`, `eas init`, `eas build -p android --profile development`, installing the APK, `npx expo start --dev-client`; then `eas build -p android --profile preview` for a shareable APK.
 
-## Tests and verification (paste the output)
-- mobile `npm test` / `typecheck`; `expo-doctor`; `npx expo export -p web --clear`;
+## Tests and verification (see `CHECKS.md`; summary lines only)
+- while you work, run only the suites you touch; **once at the end** mobile `npm test` /
+  `typecheck` and `npx expo export -p web` (no `--clear`). `expo-doctor` only if you change
+  `package.json` — which this session probably does, so run it then;
 - unit tests: the negotiation state machine (glare handling), signaling message filtering, the fallback when the native module is absent, and the TURN credentials function (mocked provider, no JWT → 401);
 - **web-to-web call test** in two headless browser contexts with fake media devices, only if the owner agrees and `apps/mobile/.env` exists (graph `mini`; abandon the test sessions);
 - a **manual checklist** for two Android phones (APK), phone ↔ web, the same Wi-Fi and two different networks (4G), with and without TURN.

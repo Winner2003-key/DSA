@@ -6,19 +6,45 @@ The lead session (the project manager) writes one brief per work session. **Each
 
 1. Open the Claude Code panel and start a **new conversation** (new tab), with the working directory `/home/winner/projects/DSA`.
 2. Send: `Read docs/sessions/<BRIEF>.md and carry out that brief completely.`
-3. When it finishes, the session writes `docs/sessions/reports/<ID>.md`. Tell the lead session "S1 finished" (or just come back), and it will read the report and prepare the next briefs.
+3. When it finishes, the session writes `docs/sessions/reports/<ID>.md` (**under 1,500 words**).
+   Tell the lead session "S1 finished" (or just come back), and it will read the report, update
+   `CONTEXT.md` and prepare the next briefs.
 
 Sessions in the same wave can run **at the same time**, because they own separate folders. Don't start a later wave until the lead has reviewed the earlier wave's reports.
 
 ## Global rules for every session
 
-- Read `GAME_RULES.md` and `GRAPH_SPECIFICATION.md` first. They are the contract.
+**Three files, in this order, before anything else:**
+
+1. **`docs/sessions/CONTEXT.md`** — where the project stands, in 900 words. It replaces
+   reading the previous sessions' reports. Read it instead of them.
+2. **`docs/sessions/CHECKS.md`** — what to run and when. Following it is the difference
+   between a twenty-minute session and a three-hour one.
+3. **Your brief**, then only the *named* sections of `GAME_RULES.md` and
+   `GRAPH_SPECIFICATION.md` it points you at. They are the contract.
+
+Then:
+
 - **No Docker. Never run `supabase start`, `db reset` or `test db`.** SQL is run by the owner in the Supabase dashboard.
 - The PDF isn't in the repo, and must not be added.
 - **The GitHub repo is public, and every push to `main` deploys to Vercel.** Never write the source book's title, author or organisation into any file. Never copy content from `data/` (the private transcription) or `DIGITIZATION_REPORT.md` into tracked files. Bible names are fine. The book graph's slug is `livre`.
 - Only touch the folders your brief says you own. Don't git commit; the lead commits after review.
 - The UI is French. Code and docs are in English.
-- Finish by writing your report: what was done, the test result lines, deviations from the spec, and open questions.
+- Finish by writing your report: what was done, the summary test lines, deviations from the
+  spec, and open questions. **Keep it under 1,500 words** — the next session has to read it.
+
+### Don't spend the session on the wrong things
+
+Measured on 2026-09-22: the whole test suite is **34 seconds** and the web export is another
+15. The cost of earlier sessions was elsewhere — rebuilding a screenshot harness from
+scratch, reading a hundred old screenshots, re-verifying unchanged SQL, and running 233 tests
+after every edit. `CHECKS.md` says what to do instead. In short:
+
+- run only the workspace you changed while you work; the full sweep once, at the end;
+- `tools/screens/` is the **committed** screenshot harness — don't build another;
+- **at most 8 screenshots**, one theme, scale 1, and describe them in words;
+- never hand-edit `supabase/sql-editor/00_all_migrations.sql`; run `build.sh`;
+- don't open previous sessions' screenshot folders.
 
 ## Plan
 
@@ -41,6 +67,15 @@ Sessions in the same wave can run **at the same time**, because they own separat
 | any | S5 | `S5-admin.md`: Next.js admin, graph editor, import review, homonym descriptions, game settings | `apps/admin/` | ✅ done (features 1–4); Homonymes page → S5b; Réglages → S9 |
 | any | S5b | `S5b-admin-homonyms.md`: the Homonymes page (descriptions for people sharing a name, with a Tireur card preview) | `apps/admin/` | ✅ done, reviewed, committed |
 | 5 | S9 | `S9-timed-games.md`: **optional** timer (checkbox, 40 s thinking + 120 s game, admin Réglages), Tireur can change the name max 2×, the book's path shown when the name wasn't found | `supabase/` 0009 / `06_timer.sql`, `apps/mobile/`, `apps/admin/` Réglages, additive core | ✅ done, committed by that session; paste `06_timer.sql` when ready |
+
+## The files a session needs
+
+| File | What it is for |
+|---|---|
+| `docs/sessions/CONTEXT.md` | where the project stands, in 900 words. **Replaces reading the old reports.** The lead keeps it current. |
+| `docs/sessions/CHECKS.md` | what to run and when, with measured timings. |
+| `tools/screens/` | the committed screenshot harness. No session builds another. |
+| `supabase/sql-editor/build.sh` | regenerates `00_all_migrations.sql`. That file is never hand-edited. |
 
 **Backlog of owner remarks** (rewind to the opening question, icons, African-accented voice, app settings, hands-free voice-first play, admin pronunciation, practising a part of the book): `docs/sessions/BACKLOG.md`.
 

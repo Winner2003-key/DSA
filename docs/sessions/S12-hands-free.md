@@ -6,12 +6,20 @@ This session implements backlog item **B5**. **The goal:** digitize the experien
 
 **Start after S7c (live voice between phones), and run alone:** S9, S10, S11 and this session all change `apps/mobile`. Check `git status` first.
 
-## Read first, completely
-1. `docs/sessions/README.md`: global rules. **No Docker**, no commit, French UI.
-2. `GAME_RULES.md` (all) and `GRAPH_SPECIFICATION.md` §1 (speech and answer recognition), §8, §9, §10.
-3. **`docs/sessions/BACKLOG.md`: B5**, and B3 if a recorded or cloud voice has been chosen by then.
-4. Reports: **`S7b-voice-app.md`** (recorder, transcriber, intents, calibration), **`S7c-live-voice.md`** (who owns the microphone during a call — this decides a lot here), `S6-rooms.md`, `S3b-game-ux.md`, `S9-timed-games.md`, `S10-app-experience.md`.
-5. `packages/voice/src/**`, `apps/mobile/src/speech/**`, `packages/core/src/intents.ts`.
+## Read first
+1. **`docs/sessions/CONTEXT.md`** — where the project stands. It replaces the old reports.
+2. **`docs/sessions/CHECKS.md`** — what to run and when. Follow it.
+3. `docs/sessions/README.md`: the global rules.
+4. `GAME_RULES.md` (all — it is short) and `GRAPH_SPECIFICATION.md` §1 (speech and answer
+   recognition), §8, §9, §10.
+5. **`docs/sessions/BACKLOG.md`: B5**, and B3 if a recorded or cloud voice has been chosen by then.
+6. **The code, not the reports:** `packages/voice/src/**`, `apps/mobile/src/speech/**`,
+   `packages/core/src/intents.ts`. That is where the recorder, transcriber, intents and
+   calibration actually live.
+7. **One section from one report:** who owns the microphone during a call, in
+   `S7c-live-voice.md`. It decides a lot here.
+
+**Don't read the other reports end to end, and don't open the old screenshot folders.**
 
 ## You own
 `apps/mobile/**`; additive changes in `packages/voice` and `packages/core` (intents) with tests. No SQL is expected; if you need a server change, say so in the report instead of inventing one.
@@ -45,16 +53,20 @@ This session implements backlog item **B5**. **The goal:** digitize the experien
 - A dropped network during a turn: a spoken "Connexion perdue", then a spoken resume.
 - With live voice between phones (S7c), each phone only acts on **its own** player's speech; follow S7c's microphone decision exactly.
 
-## Tests and verification (paste the output)
-- core, voice and mobile `npm test` / `typecheck`; `expo-doctor`; `npx expo export -p web --clear`.
+## Tests and verification (see `CHECKS.md`; summary lines only)
+- while you work, run only the suite you touched; **once at the end**, core, voice and mobile
+  `npm test` / `typecheck` and `npx expo export -p web` (no `--clear`). `expo-doctor` only if
+  you change `package.json`.
 - **A full game with zero taps** after the setup screen, driven by a fake recorder and transcriber, in AI_TIREUR and in LOCAL: ask, answer, a wrong name call, a rewind, then discovery. The test asserts no `Pressable` was pressed.
 - Silence, noise-only input, and an unrelated sentence → the spoken "je n'ai pas bien compris" path, not a wrong action.
 - The borderline held-OUI resolved by voice.
 - Spoken commands: "répète", "pause" then "reprends", "abandonner" with confirmation.
 - Echo guard: a transcript that equals what the app just said is ignored.
 - A browser run with a fake microphone playing generated sounds, as S7b did.
-- Screenshots and a short screen capture if practical, into `docs/sessions/reports/S12-screens/`.
+- Screenshots: the committed harness `tools/screens/` — don't build one. **6 shots maximum**,
+  light theme, scale 1, into `docs/sessions/reports/S12-screens/`, each described in a sentence.
+  The hands-free mirror layout is the one that matters.
 - A **manual two-phone checklist** for the owner: a full game with both phones face down, in a quiet room and a noisy one.
 
 ## Report
-Write `docs/sessions/reports/S12-hands-free.md` with what it feels like to play this way, the timings chosen (silence, maximums, cues), files and outputs, the manual checklist, deviations and open questions.
+Write `docs/sessions/reports/S12-hands-free.md`, **under 1,500 words**, with what it feels like to play this way, the timings chosen (silence, maximums, cues), files and outputs, the manual checklist, deviations and open questions.

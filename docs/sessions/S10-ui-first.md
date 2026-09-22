@@ -8,12 +8,19 @@ Implements backlog items **B2** (icons), **B4** (Réglages screen) and **B3, dev
 
 **Run one app session at a time.** S11 (`S11-rules-and-practice.md`) also owns `apps/mobile`. At the start, run `git status`: if there are uncommitted changes in `apps/mobile`, `packages/core` or `supabase`, stop and tell the owner instead of working on top of them.
 
-## Read first, completely
-1. `docs/sessions/README.md`: global rules. **No Docker**, no git commit, French UI. **Public repo: never write the source book's title, author or organisation.**
-2. `GAME_RULES.md` (how the game is played and said) and `GRAPH_SPECIFICATION.md` §1 (speech, answer recognition), §8 and §10.
-3. **`docs/sessions/BACKLOG.md`: B2, B3, B4** (and B5, so your choices don't block hands-free play later).
-4. Reports, for what exists and why: `S3-expo.md` (design language), `S3b-game-ux.md` (conversation view, path graph, game table), `S6-rooms.md` (lobby, room screens), `S7b-voice-app.md` (voice controls, calibration), `S9-timed-games.md` (countdown ring, preparation phase, "Changer de nom", result screen).
-5. The screenshots in `docs/sessions/reports/S3b-screens/`, `S6-screens/`, `S7b-screens/` and `S9-screens/`.
+## Read first
+1. **`docs/sessions/CONTEXT.md`** — where the project stands. It replaces the old reports.
+2. **`docs/sessions/CHECKS.md`** — what to run and when. Follow it; it is why this session
+   should take well under an hour of machine time.
+3. `docs/sessions/README.md`: the global rules.
+4. `GAME_RULES.md` (how the game is played and said) and `GRAPH_SPECIFICATION.md` §1 (speech,
+   answer recognition), §8 and §10.
+5. **`docs/sessions/BACKLOG.md`: B2, B3, B4** (and B5, so your choices don't block hands-free
+   play later).
+
+**Don't read the old reports end to end, and don't open the old screenshot folders.** The app
+is in front of you: run it. If you need one specific decision's reasoning, read that report's
+§1 Files table or search it for the term.
 
 ## You own
 `apps/mobile/**` only. Additive changes in `packages/voice` are allowed **only** if a voice helper genuinely belongs there, with tests. **Don't touch** `supabase/`, `apps/admin/`, `packages/core`, `scripts/` or the rule documents.
@@ -57,14 +64,16 @@ Write a short before/after note per screen in the report.
 - The chosen voice, speed and pitch apply to every spoken line, including the AI Découvreur's questions and the spoken answers.
 - No French voice on the device: a clear French notice in Réglages, and the game still works with buttons.
 
-## Tests and verification (paste the output in the report)
-- `npm test` and `npm run typecheck` for `apps/mobile` (and `packages/voice` if you touched it); `npx expo-doctor`; `npx expo export -p web --clear`.
+## Tests and verification (see `CHECKS.md`; summary lines in the report)
+- **While you work:** `npx jest --ci tests/<one-file>` from `apps/mobile`, not the whole suite.
+- **Once, at the end:** `npm test --workspaces --if-present`, `npm run typecheck --workspaces --if-present`, and `npx expo export -p web` (no `--clear`).
+- **`expo-doctor`:** only if you change `package.json`. Its 3 out-of-date packages are a known owner-level item, not yours.
 - Every existing test keeps passing; adapt the ones whose labels you change rather than deleting them.
 - New tests: the accessibility rule for icon-only buttons; the settings store (defaults, persistence, reset, "Préparer la partie" reading them); voice listing and selection with a fake list, including "no French voice" and an African locale being first and marked; speed applied to a spoken line.
-- Headless screenshots (offline mode, both themes) into `docs/sessions/reports/S10-screens/`: Accueil, Réglages (each section), the voice list with a preview, Préparer la partie, the game table for both roles, the preparation phase, and the result screen.
+- **Screenshots:** use the committed harness `tools/screens/` (read its README) — don't build one. Write `tools/screens/scenarios/S10-ui.json`, output to `docs/sessions/reports/S10-screens/`. **8 shots maximum, light theme, scale 1:** Accueil, Réglages (voix), Réglages (jeu + confort), the voice list, Préparer la partie, the game table for each role, the result screen. Add **one** dark-theme pair only if your theme work needs showing. Describe each shot in a sentence in the report — that is what the next session reads instead of opening the images.
 
 ## Report
-Write `docs/sessions/reports/S10-ui-first.md` with:
+Write `docs/sessions/reports/S10-ui-first.md`, **under 1,500 words**, with:
 - the before/after note per screen, and the icon inventory with decisions;
 - **which `fr-*` voices were found**, and a short recommendation on the African-accent question (device, cloud or recorded voices) for the owner to decide later;
 - files and outputs;

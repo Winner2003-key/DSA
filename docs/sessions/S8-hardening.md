@@ -4,9 +4,17 @@ You are a senior full-stack engineer and security reviewer on **DSA — Découve
 
 **Start only after S7c** (or after S7b, if the owner postpones live voice).
 
-## Read first, completely
-- Every file in `docs/sessions/` and **every report** in `docs/sessions/reports/` (their "open questions" sections are your backlog);
-- `GAME_RULES.md`, `GRAPH_SPECIFICATION.md`, `DATABASE_SCHEMA.md`, `IMPORT_GUIDE.md`, `VOICE.md`.
+## Read first
+1. **`docs/sessions/CONTEXT.md`** — where the project stands. It replaces the old reports.
+2. **`docs/sessions/CHECKS.md`** — what to run and when. Follow it.
+3. `docs/sessions/README.md`: the global rules.
+4. `GAME_RULES.md`, `GRAPH_SPECIFICATION.md`, `DATABASE_SCHEMA.md`, `IMPORT_GUIDE.md`, `VOICE.md`.
+5. The **"open questions" section of each report** in `docs/sessions/reports/` — those sections
+   are your backlog. `grep -A 30 -i "open questions" docs/sessions/reports/*.md` gets you all of
+   them at once; that is the only part of those reports you need.
+
+This is the one session that legitimately reads widely, so read narrowly *within* each file.
+Don't open the screenshot folders.
 
 ## You own
 Everything except the book transcription (`data/`, private). Keep changes minimal and justified. New SQL goes in the next free migration number, plus a matching `sql-editor/NN_*.sql`. Regenerate `00_all_migrations.sql`.
@@ -51,9 +59,10 @@ Everything except the book transcription (`data/`, private). Keep changes minima
    - troubleshooting.
 8. **Real-device test plan** (`docs/TEST_PLAN.md`): a checklist by mode, platform and network, for the owner to run with testers, with a place to record results.
 
-## Verification (paste the output)
-- all workspace tests and typechecks;
-- SQL checks (PGlite);
+## Verification (see `CHECKS.md`; summary lines only)
+- all workspace tests and typechecks, **once**, at the end;
+- SQL: regenerate with `build.sh`, then PGlite on the upgrade path (and the fresh path, since
+  this session may change existing migrations);
 - the leak-proof test;
 - the CI workflow run locally with `act` is **not allowed** (it needs Docker). Instead, validate the YAML and run its commands by hand;
 - the security-review summary.

@@ -1,0 +1,28 @@
+{
+  "title": "Example — copy this file and edit it for your session",
+  "theme": "light",
+  "shots": [
+    {
+      "name": "01-accueil",
+      "path": "/",
+      "note": "The home screen: the three ways to play."
+    },
+    {
+      "name": "02-preparer",
+      "path": "/jouer",
+      "note": "Préparer la partie: role, mode, chronometer."
+    },
+    {
+      "name": "03-partie-commencee",
+      "path": "/jouer",
+      "actions": [
+        { "waitFor": "Préparer" },
+        { "click": "Découvreur" },
+        { "click": "Commencer" },
+        { "waitFor": "Ancien" },
+        { "wait": 300 }
+      ],
+      "note": "Driving the UI before the shot: choose a role, start, wait for the first question."
+    }
+  ]
+}

@@ -6,12 +6,19 @@ The phone's voice mispronounces some Bible names and book labels. The admin must
 
 **Deferred by the owner on 2026-09-22** ("leave the admin side for now"): start only when the owner says so.
 
-## Read first, completely
-1. `docs/sessions/README.md`: global rules. **No Docker**, no git commit, French UI. **Public repo: never write the source book's title, author or organisation.**
-2. `docs/sessions/BACKLOG.md`: **B6** (and B3, in case recorded voices arrive later).
-3. `GRAPH_SPECIFICATION.md` §10 (phrasing and pronunciation), `DATABASE_SCHEMA.md`.
-4. Reports: `S5-admin.md`, `S5b-admin-homonyms.md` (admin structure, repository, diff and save), `S7a-voice.md` and `S7b-voice-app.md` (where the app speaks), `S2-database.md` (verifying SQL without Docker).
-5. `packages/voice/src/{speakable,lexicon.fr}.ts`.
+## Read first
+1. **`docs/sessions/CONTEXT.md`** — where the project stands. It replaces the old reports.
+2. **`docs/sessions/CHECKS.md`** — what to run and when. Follow it.
+3. `docs/sessions/README.md`: the global rules.
+4. `docs/sessions/BACKLOG.md`: **B6** (and B3, in case recorded voices arrive later).
+5. `GRAPH_SPECIFICATION.md` §10 (phrasing and pronunciation), and the `pronunciations`-adjacent
+   part of `DATABASE_SCHEMA.md`.
+6. `packages/voice/src/{speakable,lexicon.fr}.ts`, and the admin's existing
+   `src/app/graphes/[slug]/homonymes/page.tsx` — copy its structure rather than reading its
+   report.
+**Don't read the old reports end to end, and don't open the old screenshot folders.** If you
+need one decision's reasoning, read that report's §1 Files table or search it for the term.
+
 
 ## You own
 - `apps/admin/**`;
@@ -29,8 +36,13 @@ The phone's voice mispronounces some Bible names and book labels. The admin must
 ## Tests and verification (paste the output)
 - `npm test` / `npm run typecheck` for `apps/admin` (plus `packages/voice` and `apps/mobile` if you touched them); `npm run build --workspace apps/admin`.
 - Tests: admin writes and a player cannot; the RPC returns only term and spoken form; anon refused; a graph-specific row beating a global one; overrides applied in `speakablePrompt` (whole label and single word) with the displayed text unchanged; the admin page search, edit and save.
-- SQL verified like S2 (libpg-query plus PGlite in your scratchpad, not the repo), on a fresh database and on the owner's upgrade path.
-- Screenshots into `docs/sessions/reports/S13-screens/`.
+- SQL: `bash supabase/sql-editor/build.sh` to regenerate the bundle — **never hand-edit
+  `00_all_migrations.sql`**. Verify the **upgrade path** (an existing project + your new file +
+  `90_tests.sql`) with libpg-query and PGlite in your scratchpad; the fresh path only if you
+  changed an existing migration (`CHECKS.md` §5).
+- Screenshots: the committed harness `tools/screens/` — don't build one. **4 shots maximum**,
+  light theme, scale 1, into `docs/sessions/reports/S13-screens/`, each described in a sentence.
 
 ## Report
-`docs/sessions/reports/S13-pronunciation.md`: files, outputs, **the exact SQL file to paste**, deviations and open questions.
+`docs/sessions/reports/S13-pronunciation.md`, **under 1,500 words**: files, outputs, **the
+exact SQL file to paste**, deviations and open questions.
