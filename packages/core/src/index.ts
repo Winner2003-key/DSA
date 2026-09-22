@@ -21,6 +21,20 @@ export type { IdOptions } from './keys';
 export { answerClass, allowedClassesFor, sameAnswer } from './answers';
 export { GraphIndex } from './graph-index';
 export { hasHomonyms } from './homonyms';
+export { solutionPath } from './solution';
+export {
+  NO_CLOCK,
+  DEFAULT_CLOCK_SETTINGS,
+  reached,
+  timeLeftMs,
+  phaseOf,
+  startPlay,
+  endThinking,
+  restartThinking,
+  tick,
+  activeDeadline,
+} from './clock';
+export type { GamePhase, ClockSettings, ClockState } from './clock';
 export type { GraphIndexOptions } from './graph-index';
 export {
   startPosition,

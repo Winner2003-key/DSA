@@ -18,14 +18,19 @@ import { cardDescription, type RevealedPath } from '@/services/types';
 import { useTheme } from '@/theme';
 
 /**
- * The top of the result screen: "Trouvé !", the name, its description only when the
- * name is shared (§8), and the server's counts. On a discovery the name lands with
- * a short swell and a brass rule drawn under it — one small moment, then stillness.
+ * The game card at the top of the result screen, for every outcome: "Trouvé !",
+ * "Temps écoulé" or "Partie arrêtée"; the name; its description only when the
+ * name is shared (§8); the counts; and, for a timed game that was won, how long
+ * it took out of how long there was ("Trouvé en 1 min 12 s sur 2 min", §9).
+ *
+ * On a discovery the name lands with a short swell and a brass rule drawn under
+ * it — one small moment, then stillness.
  */
 export function ResultHeader({ reveal }: { reveal: RevealedPath }) {
   const theme = useTheme();
   const reduceMotion = useReducedMotion();
   const discovered = reveal.status === 'DISCOVERED';
+  const timeUp = reveal.status === 'TIME_UP';
   const secret = reveal.secret;
   const description = secret ? cardDescription(secret) : null;
 
@@ -55,11 +60,22 @@ export function ResultHeader({ reveal }: { reveal: RevealedPath }) {
       ]
     : [];
 
+  // "Trouvé en X sur Y", only when the chronometer was on and the name was found.
+  const foundIn =
+    discovered && stats?.timed && stats.found_in_seconds !== null && stats.play_seconds !== null
+      ? fr.result.foundIn(fr.timer.duration(stats.found_in_seconds), fr.timer.duration(stats.play_seconds))
+      : null;
+
   return (
     <View style={{ gap: theme.space.xs }}>
       <AppText variant="title" weight="bold" tight tone={discovered ? 'ink' : 'soft'} testID="result-title">
-        {discovered ? `🎉 ${fr.result.title}` : fr.result.abandoned}
+        {discovered ? `🎉 ${fr.result.title}` : timeUp ? `⏳ ${fr.result.timeUp}` : fr.result.abandoned}
       </AppText>
+      {timeUp ? (
+        <AppText variant="body" tone="soft" testID="result-time-up-hint">
+          {fr.result.timeUpHint}
+        </AppText>
+      ) : null}
       {secret ? (
         <View style={{ alignSelf: 'flex-start' }}>
           <Animated.View style={[{ transformOrigin: 'left center' }, nameMotion]}>
@@ -77,6 +93,11 @@ export function ResultHeader({ reveal }: { reveal: RevealedPath }) {
       {description ? (
         <AppText variant="body" tone="soft" testID="result-description">
           {description}
+        </AppText>
+      ) : null}
+      {foundIn ? (
+        <AppText variant="lead" weight="semibold" tone="brass" testID="result-found-in">
+          {foundIn}
         </AppText>
       ) : null}
       {lines.length > 0 ? (

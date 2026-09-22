@@ -1,17 +1,23 @@
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
-import { AppText } from '@/components';
+import { AppText, CountdownRing, NoticeBanner } from '@/components';
 import { fr } from '@/i18n/fr';
+import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
 
 /**
- * A room's Découvreur while the Tireur looks at the card (`TIREUR_READY`). Nothing
- * about the card is known on this device; the §9 thinking-time countdown will be
- * shown here too.
+ * The Découvreur during the preparation phase. Nothing about the card is known on
+ * this device — and nothing ever will be until the end.
+ *
+ * With the chronometer the same countdown runs here, so both players see the same
+ * seconds; if the Tireur draws another name, this side is told that it happened,
+ * and never which name (§9).
  */
-export function DecouvreurWaitingView() {
+export function DecouvreurWaitingView({ game }: { game: UseGame }) {
   const theme = useTheme();
+  const timed = game.state?.timed === true;
+
   return (
     <View
       testID="decouvreur-waiting-tireur"
@@ -23,14 +29,19 @@ export function DecouvreurWaitingView() {
         alignItems: 'center',
       }}
     >
-      <View testID="think-timer-slot" />
-      <ActivityIndicator size="large" color={theme.colors.brass} />
+      <View testID="think-timer-slot">
+        <CountdownRing countdown={game.countdown} size="lg" label={fr.timer.thinking} testID="think-countdown" />
+      </View>
+      {timed ? null : <ActivityIndicator size="large" color={theme.colors.brass} />}
       <AppText variant="title" weight="bold" tight style={{ textAlign: 'center' }}>
-        {fr.room.tireurLooking}
+        {timed ? fr.room.tireurThinking : fr.room.tireurLooking}
       </AppText>
       <AppText variant="body" tone="soft" style={{ textAlign: 'center' }}>
-        {fr.room.tireurLookingHint}
+        {timed ? fr.room.tireurThinkingHint : fr.room.tireurLookingHint}
       </AppText>
+      {game.otherRedrew ? (
+        <NoticeBanner testID="other-redrew" title={fr.room.tireurRedrew} />
+      ) : null}
     </View>
   );
 }

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import type { Awaiting, Role } from '@dsa/core';
+import type { Awaiting, GamePhase, Role } from '@dsa/core';
 
 import { getGameService } from '@/services';
 import { DsaError, toDsaError } from '@/services/errors';
 import type { GameService } from '@/services/game-service';
 import { FALLBACK_POLL_MS, type RealtimeStatus } from '@/services/realtime-sync';
 import type { GameState } from '@/services/types';
+import { useCountdown, type Countdown } from './use-countdown';
 import { buildExchanges, pruneGuesses, type Exchange, type GuessRecord } from './exchanges';
 
 /** How long the AI Découvreur "thinks" before acting, so a turn feels human. */
@@ -29,17 +30,14 @@ const MAX_AI_STEPS_IN_A_ROW = 24;
  * Where the table is, for every mode:
  *
  *   LOBBY         a room waits for its second player (status WAITING)
- *   TIREUR_READY  the Tireur looks at the card before the first question —
- *                 LOCAL: a client-side step (GRAPH_SPECIFICATION §8);
- *                 rooms: the server's `tireur_ready` (dsa_tireur_ready, brief S6).
- *                 This is the one phase the §9 thinking time will be put on.
+ *   TIREUR_READY  the preparation phase: the Tireur has the card and works out
+ *                 the path to it. Since §9 the server owns it in every mode with
+ *                 a human Tireur (`tireur_ready`), and in a timed game the
+ *                 thinking clock runs during exactly this phase.
  *   PLAYING       questions and answers
- *   ENDED         DISCOVERED or ABANDONED
+ *   ENDED         DISCOVERED, ABANDONED or TIME_UP
  */
 export type TablePhase = 'LOBBY' | 'TIREUR_READY' | 'PLAYING' | 'ENDED';
-
-/** Sessions whose Tireur already said "je suis prêt" on this device. */
-const tireurReadySessions = new Set<string>();
 
 /** What this device just sent and is waiting to hear back about. */
 export type Outgoing = { kind: 'ASK'; text: string } | { kind: 'GUESS'; name: string };
@@ -75,8 +73,26 @@ export interface UseGame {
   exchanges: Exchange[];
   /** null until the first state arrives. */
   phase: TablePhase | null;
-  /** "C’est bon, je suis prêt": client-side in LOCAL, `dsa_tireur_ready` in a room. */
+  /** "C’est bon, je suis prêt": ends the server's preparation phase. */
   confirmTireurReady: () => void;
+  /**
+   * "Changer de nom" (§9): draws another card during the preparation phase. The
+   * Tireur may do it `state.redraws_left` more times, and never once the
+   * questions have started.
+   */
+  redrawSecret: () => Promise<void>;
+  /** Whether "Changer de nom" should be offered at all right now. */
+  canRedraw: boolean;
+  /**
+   * The countdown of a timed game: the thinking time during the preparation
+   * phase, the game time afterwards. `running` is false in an untimed game, and
+   * nothing about the clock is on screen then.
+   */
+  countdown: Countdown;
+  /** The phase the clock is measuring, for the label next to the ring. */
+  clockPhase: GamePhase;
+  /** The other device drew another name; cleared as soon as the game starts. */
+  otherRedrew: boolean;
   /** A room (HUMAN_VS_HUMAN) that is still open: it is kept in sync over Realtime. */
   isRoom: boolean;
   /** The push channel, for a room; null otherwise. */
@@ -132,6 +148,8 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   const lostAfterMs = options.connectionLostAfterMs ?? CONNECTION_LOST_AFTER_MS;
 
   const [state, setState] = useState<GameState | null>(null);
+  /** `Date.now()` when `state` arrived: the countdown measures from here. */
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DsaError | null>(null);
@@ -139,7 +157,7 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   const [refusedGuess, setRefusedGuess] = useState<string | null>(null);
   const [guesses, setGuesses] = useState<GuessRecord[]>([]);
   const [outgoing, setOutgoing] = useState<Outgoing | null>(null);
-  const [tireurReady, setTireurReady] = useState(() => (sessionId ? tireurReadySessions.has(sessionId) : false));
+  const [otherRedrew, setOtherRedrew] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null);
   const [channelDown, setChannelDown] = useState(false);
   const [networkDown, setNetworkDown] = useState(false);
@@ -160,6 +178,10 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
     const previous = latest.current;
     latest.current = next;
     setState(next);
+    setReceivedAt(Date.now());
+    // The other device changed its card: tell this player, until the game starts.
+    if (previous && next.redraws_used > previous.redraws_used) setOtherRedrew(true);
+    if (next.phase === 'PLAYING') setOtherRedrew(false);
     const stillHere = next.status === 'PLAYING' && next.pending_guess === null;
     let refused: string | null = null;
     if (stillHere && previous?.pending_guess) refused = previous.pending_guess;
@@ -238,7 +260,7 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
     setRefusedGuess(null);
     setGuesses([]);
     setOutgoing(null);
-    setTireurReady(sessionId ? tireurReadySessions.has(sessionId) : false);
+    setOtherRedrew(false);
     setRealtimeStatus(null);
     setNetworkDown(false);
     aiSteps.current = 0;
@@ -373,22 +395,54 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   if (state) {
     if (state.status === 'WAITING' || state.status === 'READY') phase = 'LOBBY';
     else if (state.status !== 'PLAYING') phase = 'ENDED';
-    else if (state.mode === 'LOCAL') {
-      // A LOCAL game that already has answers (a reload mid-game) is past the hand-over.
-      const pastHandOver = tireurReady || state.path.length > 0 || state.awaiting !== 'QUESTION';
-      phase = pastHandOver ? 'PLAYING' : 'TIREUR_READY';
-    } else phase = state.tireur_ready ? 'PLAYING' : 'TIREUR_READY';
+    // Since §9 the preparation phase is the server's, in every mode with a human
+    // Tireur — LOCAL and AI_DECOUVREUR included. A reload lands back in it, which
+    // is right: the Tireur still has to say they are ready.
+    else phase = state.tireur_ready ? 'PLAYING' : 'TIREUR_READY';
   }
 
   const isLocal = state?.mode === 'LOCAL';
   const confirmTireurReady = useCallback(() => {
-    if (isLocal) {
-      if (sessionId) tireurReadySessions.add(sessionId);
-      setTireurReady(true);
-      return;
-    }
     void run((id) => service.tireurReady(id), true);
-  }, [isLocal, run, service, sessionId]);
+  }, [run, service]);
+
+  const redrawSecret = useCallback(() => run((id) => service.redrawSecret(id), true), [run, service]);
+
+  // --- the clock of a timed game -------------------------------------------
+  const clockPhase: GamePhase = state?.phase ?? 'THINKING';
+  const deadline = state?.timed === true && state.status === 'PLAYING'
+    ? (clockPhase === 'THINKING' ? state.think_ends_at : state.play_ends_at)
+    : null;
+  const totalSeconds = clockPhase === 'THINKING' ? (state?.settings.think_seconds ?? null) : (state?.settings.play_seconds ?? null);
+
+  /**
+   * Nobody may be moving when the time runs out, so this device tells the server
+   * (`dsa_check_time`). It never raises: the state simply comes back TIME_UP, and
+   * the other phone learns it over Realtime.
+   */
+  const onExpire = useCallback(() => {
+    if (!sessionId) return;
+    void service
+      .checkTime(sessionId)
+      .then((next) => {
+        if (mounted.current) accept(next);
+      })
+      .catch(() => undefined);
+  }, [accept, service, sessionId]);
+
+  const countdown = useCountdown({
+    deadline,
+    serverNow: state?.server_now ?? new Date(receivedAt).toISOString(),
+    receivedAt,
+    totalSeconds,
+    onExpire,
+  });
+
+  const canRedraw =
+    phase === 'TIREUR_READY' &&
+    myRoles.includes('TIREUR') &&
+    (state?.redraws_left ?? 0) > 0 &&
+    (state?.path.length ?? 0) === 0;
 
   return {
     state,
@@ -405,6 +459,11 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
     exchanges,
     phase,
     confirmTireurReady,
+    redrawSecret,
+    canRedraw,
+    countdown,
+    clockPhase,
+    otherRedrew,
     isRoom,
     realtimeStatus: isRoom ? realtimeStatus : null,
     connectionLost: isRoom && (channelDown || networkDown),

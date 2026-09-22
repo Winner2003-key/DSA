@@ -7,6 +7,8 @@ import type {
   RematchSession,
   RevealedPath,
   Secret,
+  SolutionPath,
+  TimerDefaults,
 } from './types';
 
 /**
@@ -34,8 +36,20 @@ export interface GameService {
   /** TIREUR only. A Découvreur screen must never call this. */
   getMySecret(sessionId: string): Promise<Secret>;
 
-  /** TIREUR: "Je suis prêt" in a room — the Découvreur may ask from now on. */
+  /** TIREUR: "Je suis prêt" — the preparation phase ends and the game time starts. */
   tireurReady(sessionId: string): Promise<GameState>;
+  /**
+   * TIREUR: "Changer de nom", only during the preparation phase. Draws another
+   * card (never one already drawn in this game) and, in a timed game, gives a
+   * fresh thinking time. Throws `GAME_STARTED` once the questions have begun and
+   * `NO_REDRAW_LEFT` after `settings.max_redraws`.
+   */
+  redrawSecret(sessionId: string): Promise<GameState>;
+  /**
+   * Lets an idle client turn a game whose time has run out into `TIME_UP`. The
+   * server decides; this never raises `TIME_UP`, it just returns the new state.
+   */
+  checkTime(sessionId: string): Promise<GameState>;
   ask(sessionId: string): Promise<GameState>;
   answer(sessionId: string, answerLabel: string): Promise<GameState>;
   guess(sessionId: string, name: string): Promise<GameState>;
@@ -51,7 +65,15 @@ export interface GameService {
    */
   rematch(sessionId: string, swapRoles: boolean): Promise<RematchSession>;
 
+  /**
+   * The durations "Préparer la partie" promises under the chronometer checkbox.
+   * They are the admin's current Réglages, not a running game's snapshot.
+   */
+  getTimerDefaults(): Promise<TimerDefaults>;
+
   getRevealedPath(sessionId: string): Promise<RevealedPath>;
+  /** The book's own path to the name. Only once the game is over. */
+  getSolutionPath(sessionId: string): Promise<SolutionPath>;
   listNames(graphSlug: string): Promise<string[]>;
 
   /**

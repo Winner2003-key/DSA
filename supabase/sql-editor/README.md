@@ -29,6 +29,15 @@ These are the files the owner pastes into the hosted Supabase dashboard (**SQL E
 | 1 | `05_rooms.sql` | Same content as `migrations/0008_rooms.sql` | Yes |
 | 2 | `90_tests.sql` | Checks everything, including the new block 14 (rooms) | Yes |
 
+`06_timer.sql` brings a project up to date with the timed-games update (the optional chronometer and its `app_settings` row, the preparation phase in every mode with a human Tireur, "Changer de nom", and the book's own path shown at the end of every game). Run it after `05` (it stops with a clear message if `05` is missing), then run `90_tests.sql` again and expect `ALL DSA TESTS PASSED`. It is safe to run more than once, and a new project doesn't need it: the regenerated `00` contains it. The new `90` refuses to run on a project that skipped `06`.
+
+| Order | File | What it does | Run again? |
+|---|---|---|---|
+| 1 | `06_timer.sql` | Same content as `migrations/0009_timer.sql` | Yes |
+| 2 | `90_tests.sql` | Checks everything, including the new blocks 15–17 (timer, name changes, the book's path) | Yes |
+
+After `06`, the three durations can be changed in the admin app under **Réglages** (`app_settings`). They only affect games started afterwards.
+
 The optional hourly stale-room cleanup (pg_cron) is described in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#stale-rooms-0008).
 
 The full step-by-step setup is in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#setup-in-the-supabase-dashboard).
@@ -47,4 +56,4 @@ The full step-by-step setup is in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.m
 bash supabase/sql-editor/build.sh
 ```
 
-Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql`, `04_voice.sql` and `05_rooms.sql` are `0006`, `0007` and `0008` with an owner-facing header; keep each pair identical when either changes.
+Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql`, `04_voice.sql`, `05_rooms.sql` and `06_timer.sql` are `0006`, `0007`, `0008` and `0009` with an owner-facing header; keep each pair identical when either changes.

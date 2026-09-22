@@ -4,6 +4,7 @@ import { createGameSubscription, type OpenChannel, type RealtimeStatus } from '.
 import { ensureRealtimeAuth, ensureSignedIn, getSupabase } from './supabase';
 import {
   DEFAULT_SETTINGS,
+  FALLBACK_TIMER_DEFAULTS,
   type CreateSessionOptions,
   type CreatedSession,
   type GameSettings,
@@ -14,7 +15,9 @@ import {
   type RematchSession,
   type RevealedPath,
   type Secret,
+  type SolutionPath,
   type StatePlayer,
+  type TimerDefaults,
   type StatePrompt,
 } from './types';
 
@@ -111,16 +114,38 @@ function asPath(raw: unknown): PathEntry[] {
   });
 }
 
+/** Tolerates a server that predates 06_timer.sql: no `timed`, no durations. */
 function asSettings(raw: unknown): GameSettings {
-  const mode = raw && typeof raw === 'object' ? (raw as { input_mode?: unknown }).input_mode : undefined;
-  return { input_mode: mode === 'VOICE' ? 'VOICE' : DEFAULT_SETTINGS.input_mode };
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const int = (k: string, fallback: number | null): number | null =>
+    typeof r[k] === 'number' ? (r[k] as number) : fallback;
+  return {
+    input_mode: r.input_mode === 'VOICE' ? 'VOICE' : DEFAULT_SETTINGS.input_mode,
+    timed: r.timed === true,
+    think_seconds: int('think_seconds', null),
+    play_seconds: int('play_seconds', null),
+    max_redraws: int('max_redraws', 0) ?? 0,
+  };
 }
 
 function asStats(raw: unknown): GameStats | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const n = (k: string) => (typeof r[k] === 'number' ? (r[k] as number) : 0);
-  return { questions: n('questions'), non: n('non'), backs: n('backs'), rewinds: n('rewinds') };
+  const orNull = (k: string) => (typeof r[k] === 'number' ? (r[k] as number) : null);
+  return {
+    questions: n('questions'),
+    non: n('non'),
+    backs: n('backs'),
+    rewinds: n('rewinds'),
+    timed: r.timed === true,
+    play_seconds: orNull('play_seconds'),
+    found_in_seconds: orNull('found_in_seconds'),
+  };
+}
+
+function asIso(raw: unknown): string | null {
+  return typeof raw === 'string' && raw !== '' ? raw : null;
 }
 
 function asSecret(raw: Partial<SecretRow> | null | undefined): Secret | null {
@@ -199,6 +224,14 @@ export class SupabaseGameService implements GameService {
       // A server that predates 05_rooms.sql has no ready phase: treat it as ready.
       tireur_ready: raw.tireur_ready !== false,
       room_code: typeof raw.room_code === 'string' ? raw.room_code : null,
+      // A server without 06_timer.sql sends none of these: it plays untimed.
+      timed: raw.timed === true,
+      phase: raw.phase === 'THINKING' ? 'THINKING' : 'PLAYING',
+      think_ends_at: asIso(raw.think_ends_at),
+      play_ends_at: asIso(raw.play_ends_at),
+      server_now: asIso(raw.server_now) ?? new Date().toISOString(),
+      redraws_used: typeof raw.redraws_used === 'number' ? raw.redraws_used : 0,
+      redraws_left: typeof raw.redraws_left === 'number' ? raw.redraws_left : 0,
     };
   }
 
@@ -208,7 +241,11 @@ export class SupabaseGameService implements GameService {
       p_mode: options.mode,
       p_role: options.role ?? null,
       p_display_name: options.displayName ?? null,
-      p_settings: { ...DEFAULT_SETTINGS, ...options.settings },
+      // Only the two keys a client may choose; the server fills in the rest.
+      p_settings: {
+        input_mode: options.settings?.input_mode ?? DEFAULT_SETTINGS.input_mode,
+        timed: options.settings?.timed ?? DEFAULT_SETTINGS.timed,
+      },
     });
     const row = SupabaseGameService.firstRow<CreateSessionRow>(data, 'dsa_create_session');
     return { sessionId: row.session_id, roomCode: row.room_code };
@@ -236,6 +273,14 @@ export class SupabaseGameService implements GameService {
 
   async tireurReady(sessionId: string): Promise<GameState> {
     return SupabaseGameService.asState(await this.call('dsa_tireur_ready', { p_session_id: sessionId }));
+  }
+
+  async redrawSecret(sessionId: string): Promise<GameState> {
+    return SupabaseGameService.asState(await this.call('dsa_redraw_secret', { p_session_id: sessionId }));
+  }
+
+  async checkTime(sessionId: string): Promise<GameState> {
+    return SupabaseGameService.asState(await this.call('dsa_check_time', { p_session_id: sessionId }));
   }
 
   async rematch(sessionId: string, swapRoles: boolean): Promise<RematchSession> {
@@ -295,6 +340,29 @@ export class SupabaseGameService implements GameService {
       winner: data.winner ?? null,
       path: asPath(data.path),
       stats: asStats(data.stats),
+      secret: asSecret(data.secret as Partial<SecretRow> | null),
+    };
+  }
+
+  async getTimerDefaults(): Promise<TimerDefaults> {
+    const raw = (await this.call('dsa_timer_defaults')) as Record<string, unknown> | null;
+    const n = (key: string, fallback: number) =>
+      raw && typeof raw[key] === 'number' ? (raw[key] as number) : fallback;
+    return {
+      think_seconds: n('think_seconds', FALLBACK_TIMER_DEFAULTS.think_seconds),
+      play_seconds: n('play_seconds', FALLBACK_TIMER_DEFAULTS.play_seconds),
+      max_redraws: n('max_redraws', FALLBACK_TIMER_DEFAULTS.max_redraws),
+    };
+  }
+
+  async getSolutionPath(sessionId: string): Promise<SolutionPath> {
+    const data = (await this.call('dsa_get_solution_path', { p_session_id: sessionId })) as
+      | Partial<SolutionPath>
+      | null;
+    if (!data || typeof data !== 'object') throw new DsaError('UNKNOWN', 'dsa_get_solution_path returned nothing');
+    return {
+      status: (data.status ?? 'DISCOVERED') as SolutionPath['status'],
+      path: asPath(data.path),
       secret: asSecret(data.secret as Partial<SecretRow> | null),
     };
   }

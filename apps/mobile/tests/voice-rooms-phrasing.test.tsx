@@ -33,7 +33,7 @@ function asRoomPhone(game: UseGame, role: 'TIREUR' | 'DECOUVREUR'): UseGame {
     state: {
       ...state,
       mode: 'HUMAN_VS_HUMAN',
-      settings: { input_mode: 'VOICE' },
+      settings: { input_mode: 'VOICE', timed: false, think_seconds: null, play_seconds: null, max_redraws: 2 },
       room_code: 'DSA-4821',
       players: [
         { role: 'TIREUR', display_name: 'Awa', is_ai: false, is_me: role === 'TIREUR' },
@@ -46,6 +46,7 @@ function asRoomPhone(game: UseGame, role: 'TIREUR' | 'DECOUVREUR'): UseGame {
 async function localGame() {
   const service = new OfflineGameService({ persist: false, secretNodeKey: CAIN });
   const { sessionId } = await service.createSession({ graphSlug: 'mini', mode: 'LOCAL', settings: { input_mode: 'VOICE' } });
+  await service.tireurReady(sessionId);
   const hook = await renderHook(() => useGame(sessionId, { service }), { wrapper: Providers });
   await waitFor(() => expect(hook.result.current.state).not.toBeNull());
   return { service, sessionId, hook };

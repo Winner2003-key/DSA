@@ -12,6 +12,8 @@ const P = 'ancien[oui]/homme[oui]/pentateuque[oui]/pentateuque-hommes';
 async function play(secretKey: string, answers: string[]): Promise<PathEntry[]> {
   const service = new OfflineGameService({ persist: false, secretNodeKey: secretKey });
   const { sessionId } = await service.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
+  // §9: every mode with a human Tireur starts in the preparation phase.
+  await service.tireurReady(sessionId);
   for (const label of answers) {
     await service.ask(sessionId);
     await service.answer(sessionId, label);
@@ -151,6 +153,7 @@ describe('layoutPath', () => {
   it('draws only what was walked: no node for unused branches or undone steps', async () => {
     const service = new OfflineGameService({ persist: false, secretNodeKey: `${P}/lie-a-adam/classe-1/le-meurtrier--cain` });
     const { sessionId } = await service.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
+    await service.tireurReady(sessionId);
     for (const label of ['OUI', 'OUI', 'OUI', 'NON']) {
       await service.ask(sessionId);
       await service.answer(sessionId, label);

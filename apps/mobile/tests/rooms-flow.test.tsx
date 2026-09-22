@@ -15,7 +15,7 @@ import type { GameState, Secret } from '@/services/types';
 import { useGame } from '@/state/use-game';
 import { RoomTable } from '@/views/room-table';
 
-import { renderWithProviders } from './helpers';
+import { makeSettings, renderWithProviders, T0 } from './helpers';
 
 // ---- fake Realtime (presence and broadcast on room:<code>) ----------------------
 type Handler = (message: { payload?: unknown }) => void;
@@ -93,9 +93,16 @@ class RoomServer {
       pending_guess: null,
       path: [],
       players: this.players.map((p) => ({ role: p.role, display_name: p.name, is_ai: false, is_me: p.user === user })),
-      settings: { input_mode: 'BUTTONS' },
+      settings: makeSettings(),
       tireur_ready: this.tireurReady,
       room_code: 'DSA-4821',
+      timed: false,
+      phase: this.tireurReady ? 'PLAYING' : 'THINKING',
+      think_ends_at: null,
+      play_ends_at: null,
+      server_now: T0,
+      redraws_used: 0,
+      redraws_left: 2,
     };
   }
 
@@ -120,6 +127,13 @@ class RoomServer {
         server.emit();
         return server.stateFor(user);
       },
+      redrawSecret: async () => {
+        record('redrawSecret');
+        return server.stateFor(user);
+      },
+      checkTime: state,
+      getTimerDefaults: async () => ({ think_seconds: 40, play_seconds: 120, max_redraws: 2 }),
+      getSolutionPath: async () => ({ status: server.status, path: [], secret: null }),
       ask: async () => {
         record('ask');
         server.awaiting = 'ANSWER';
@@ -257,7 +271,9 @@ it('the other player leaves: a banner after the grace period, "Attendre" hides i
   server.join('bill', 'Bill');
   server.tireurReady = true;
   realtime.presence = presenceOf('TIREUR', 'DECOUVREUR');
-  const screen = await renderWithProviders(<Device service={server.serviceFor('awa')} graceMs={30} />);
+  // A generous grace period: the "not yet" assertion below races real wall time,
+  // and 30 ms is not enough slack on a loaded machine.
+  const screen = await renderWithProviders(<Device service={server.serviceFor('awa')} graceMs={400} />);
   await waitFor(() => expect(screen.getByTestId('tireur-waiting')).toBeTruthy());
   await settle();
   expect(screen.queryByTestId('other-gone')).toBeNull();
@@ -265,7 +281,7 @@ it('the other player leaves: a banner after the grace period, "Attendre" hides i
   // Bill's phone vanishes from the room.
   await act(async () => realtime.setPresence(presenceOf('TIREUR')));
   expect(screen.queryByTestId('other-gone')).toBeNull(); // not before the grace period
-  await settle(120);
+  await settle(500);
   await waitFor(() => expect(screen.getByTestId('other-gone')).toBeTruthy());
   expect(screen.getByText('Bill s’est déconnecté.')).toBeTruthy();
 
@@ -280,7 +296,7 @@ it('the other player leaves: a banner after the grace period, "Attendre" hides i
   );
   await waitFor(() => expect(screen.getByTestId('other-away')).toBeTruthy());
   await act(async () => realtime.setPresence(presenceOf('TIREUR')));
-  await settle(120);
+  await settle(500);
   await waitFor(() => expect(screen.getByTestId('other-gone')).toBeTruthy());
 
   await act(async () => {

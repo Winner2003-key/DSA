@@ -12,7 +12,8 @@
 -- blocks cover HUMAN_VS_HUMAN create/join, room codes, DSA_ROOM_FULL, the AI
 -- Tireur auto-answers and the error codes. Block 13 covers 0006 (game UX:
 -- homonyms, path fields, stats, session settings). Block 14 covers 0008
--- (rooms: Tireur ready, stale-room cleanup, rematch).
+-- (rooms: Tireur ready, stale-room cleanup, rematch). Blocks 15-17 cover 0009
+-- (timed games, the name change before the start, and the book's own path).
 --
 -- Users are simulated like PostgREST does it: role `authenticated` plus
 -- request.jwt.claims. The secret of a session is forced as the postgres role
@@ -36,6 +37,11 @@ begin
   if to_regprocedure('public.dsa_tireur_ready(uuid)') is null
      or to_regprocedure('public.dsa_rematch(uuid,boolean)') is null then
     raise exception 'DSA TEST SETUP: this project predates the rooms update; run 05_rooms.sql (or the new 00_all_migrations.sql) first';
+  end if;
+  if to_regprocedure('public.dsa_check_time(uuid)') is null
+     or to_regprocedure('public.dsa_redraw_secret(uuid)') is null
+     or to_regprocedure('public.dsa_get_solution_path(uuid)') is null then
+    raise exception 'DSA TEST SETUP: this project predates the timed-games update; run 06_timer.sql (or the new 00_all_migrations.sql) first';
   end if;
   if not exists (select 1 from public.graphs where slug = 'mini') then
     raise exception 'DSA TEST SETUP: run 01_seed_mini_graph.sql first';
@@ -128,6 +134,34 @@ begin
 end;
 $$;
 
+-- jsonb equality, so a comparison never depends on how Postgres orders keys.
+create function dsa_test.eq_json(p_scenario text, p_what text, p_actual jsonb, p_expected jsonb) returns void
+language plpgsql as $$
+begin
+  if p_actual is distinct from p_expected then
+    perform dsa_test.fail(p_scenario, format('%s: expected %s, got %s',
+      p_what, p_expected::text, coalesce(p_actual::text, '<null>')));
+  end if;
+end;
+$$;
+
+-- What dsa_timer_defaults should say, read as the owner.
+create function dsa_test.timer_defaults() returns jsonb
+language sql stable security definer set search_path = public, pg_temp as $$
+  select jsonb_build_object('think_seconds', a.think_seconds, 'play_seconds', a.play_seconds, 'max_redraws', a.max_redraws)
+  from public.dsa_app_settings() a;
+$$;
+
+-- The settings an untimed game is stored with, for the defaults of app_settings.
+create function dsa_test.settings(p_input_mode text default 'BUTTONS', p_timed boolean default false) returns jsonb
+language sql stable security definer set search_path = public, pg_temp as $$
+  select jsonb_build_object('input_mode', p_input_mode, 'timed', p_timed, 'max_redraws', a.max_redraws)
+       || case when p_timed
+               then jsonb_build_object('think_seconds', a.think_seconds, 'play_seconds', a.play_seconds)
+               else '{}'::jsonb end
+  from public.dsa_app_settings() a;
+$$;
+
 -- Runs p_sql and requires it to fail with an error whose message starts with
 -- p_expected (a DSA_* code) or whose SQLSTATE equals p_expected (e.g. 42501).
 create function dsa_test.expect_error(p_scenario text, p_sql text, p_expected text) returns void
@@ -176,6 +210,15 @@ $$;
 
 -- The 0006 path fields, one step per segment: text:prompt_kind:node_type:target_text
 -- (target_text is '-' when null).
+-- The four 0006 counters, without the 0009 additions (timed, play_seconds,
+-- found_in_seconds), which the timed-games block checks on their own.
+create function dsa_test.core_stats(p_stats jsonb) returns jsonb
+language sql immutable as $$
+  select jsonb_build_object(
+    'questions', p_stats->'questions', 'non', p_stats->'non',
+    'backs', p_stats->'backs', 'rewinds', p_stats->'rewinds');
+$$;
+
 create function dsa_test.path_fields(p_path jsonb) returns text
 language sql immutable as $$
   select coalesce(string_agg(
@@ -185,14 +228,24 @@ language sql immutable as $$
 $$;
 
 -- Creates a session as p_user and (test-only) forces its secret as postgres.
-create function dsa_test.new_session(p_user uuid, p_mode text, p_role text, p_secret_key text) returns uuid
+-- Since 0009 every mode with a human Tireur starts in the preparation phase, so
+-- by default the helper also ends it (p_ready => false keeps the phase open).
+-- A HUMAN_VS_HUMAN room is still WAITING here, so its caller does it.
+create function dsa_test.new_session(
+  p_user       uuid,
+  p_mode       text,
+  p_role       text,
+  p_secret_key text,
+  p_ready      boolean default true,
+  p_settings   jsonb default '{}'::jsonb
+) returns uuid
 language plpgsql as $$
 declare
   v_session uuid;
   v_secret  uuid;
 begin
   perform dsa_test.as_user(p_user);
-  select c.session_id into v_session from public.dsa_create_session('mini', p_mode, p_role, 'Test') c;
+  select c.session_id into v_session from public.dsa_create_session('mini', p_mode, p_role, 'Test', p_settings) c;
 
   if p_secret_key is not null then
     perform dsa_test.as_postgres();
@@ -208,6 +261,10 @@ begin
       perform dsa_test.fail('setup', 'no game_secrets row for the new session');
     end if;
     perform dsa_test.as_user(p_user);
+  end if;
+
+  if p_ready and p_mode in ('LOCAL', 'AI_DECOUVREUR') then
+    perform public.dsa_tireur_ready(v_session);
   end if;
 
   return v_session;
@@ -323,7 +380,7 @@ begin
     || ' > LIE A ADAM:CHILD:CATEGORY:- > CLASSE 1:CHILD:GROUP:- > Premier homme:CHILD:CHARACTER:- > Le meurtrier:CHILD:CHARACTER:-');
   perform dsa_test.eq(c, 'state path fields == revealed path fields',
     dsa_test.path_fields(public.dsa_get_state(s)->'path'), dsa_test.path_fields(rp->'path'));
-  perform dsa_test.eq(c, 'stats (0006)', rp->>'stats', '{"non": 1, "backs": 0, "rewinds": 0, "questions": 7}');
+  perform dsa_test.eq_json(c, 'stats (0006)', dsa_test.core_stats(rp->'stats'), '{"non": 1, "backs": 0, "rewinds": 0, "questions": 7}');
   perform dsa_test.eq(c, 'CAÏN has no homonym', rp->'secret'->>'has_homonyms', 'false');
   perform dsa_test.expect_error(c, format('select public.dsa_ask(%L)', s), 'DSA_GAME_OVER');
   perform dsa_test.expect_error(c, format('select public.dsa_guess(%L, %L)', s, 'CAÏN'), 'DSA_GAME_OVER');
@@ -526,7 +583,7 @@ begin
     'ANCIEN=OUI > HOMME=OUI > PENTATEUQUE=OUI > LIE A ADAM=OUI > CLASSE 1=OUI > Premier homme=NON > Le meurtrier=OUI');
   perform dsa_test.check(c, dsa_test.path_str(rp->'path') not like '%LIE A ADAM=NON%', 'the undone NON must not be revealed');
   -- stats count every move, undone ones included (like packages/core stats())
-  perform dsa_test.eq(c, 'stats (0006)', rp->>'stats', '{"non": 2, "backs": 0, "rewinds": 1, "questions": 8}');
+  perform dsa_test.eq_json(c, 'stats (0006)', dsa_test.core_stats(rp->'stats'), '{"non": 2, "backs": 0, "rewinds": 1, "questions": 8}');
 
   perform dsa_test.as_postgres();
   perform dsa_test.eq(c, 'undone ANSWER moves',
@@ -610,7 +667,7 @@ begin
 
   perform dsa_test.play(c, s, 'PENTATEUQUE', 'OUI');
   perform dsa_test.eq(c, 'prompt', dsa_test.prompt(s), 'LIE A ADAM');
-  perform dsa_test.eq(c, 'stats (0006)', public.dsa_get_revealed_path(s)->>'stats',
+  perform dsa_test.eq_json(c, 'stats (0006)', dsa_test.core_stats(public.dsa_get_revealed_path(s)->'stats'),
     '{"non": 2, "backs": 1, "rewinds": 0, "questions": 5}');
 end;
 $$;
@@ -1236,25 +1293,25 @@ begin
   ---- default input_mode
   select cs.session_id into s from public.dsa_create_session('mini', 'LOCAL') cs;
   st := public.dsa_get_state(s);
-  perform dsa_test.eq(c, 'default settings', st->>'settings', '{"input_mode": "BUTTONS"}');
+  perform dsa_test.eq_json(c, 'default settings', st->'settings', dsa_test.settings());
 
   select cs.session_id into s from public.dsa_create_session('mini', 'AI_TIREUR', null, null, '{}'::jsonb) cs;
-  perform dsa_test.eq(c, 'empty settings', public.dsa_get_state(s)->>'settings', '{"input_mode": "BUTTONS"}');
+  perform dsa_test.eq_json(c, 'empty settings', public.dsa_get_state(s)->'settings', dsa_test.settings());
 
   select cs.session_id into s from public.dsa_create_session('mini', 'AI_TIREUR', null, null, null) cs;
-  perform dsa_test.eq(c, 'null settings', public.dsa_get_state(s)->>'settings', '{"input_mode": "BUTTONS"}');
+  perform dsa_test.eq_json(c, 'null settings', public.dsa_get_state(s)->'settings', dsa_test.settings());
 
   ---- explicit values, by named argument like supabase-js sends them
   select cs.session_id into s from public.dsa_create_session(
     p_graph_slug => 'mini', p_mode => 'HUMAN_VS_HUMAN', p_role => 'TIREUR', p_display_name => 'Awa',
     p_settings => '{"input_mode": "VOICE"}'::jsonb) cs;
-  perform dsa_test.eq(c, 'VOICE', public.dsa_get_state(s)->>'settings', '{"input_mode": "VOICE"}');
+  perform dsa_test.eq_json(c, 'VOICE', public.dsa_get_state(s)->'settings', dsa_test.settings('VOICE'));
 
   select cs.session_id into s from public.dsa_create_session('mini', 'LOCAL', null, null, '{"input_mode": "BUTTONS"}') cs;
-  perform dsa_test.eq(c, 'BUTTONS', public.dsa_get_state(s)->>'settings', '{"input_mode": "BUTTONS"}');
+  perform dsa_test.eq_json(c, 'BUTTONS', public.dsa_get_state(s)->'settings', dsa_test.settings());
 
   perform dsa_test.as_postgres();
-  perform dsa_test.eq(c, 'stored column', (select gs.settings::text from public.game_sessions gs where gs.id = s), '{"input_mode": "BUTTONS"}');
+  perform dsa_test.eq_json(c, 'stored column', (select gs.settings from public.game_sessions gs where gs.id = s), dsa_test.settings());
   perform dsa_test.as_user(u);
 
   ---- validation
@@ -1355,23 +1412,31 @@ begin
   perform dsa_test.as_user(t);
   perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_GAME_OVER');
 
-  -- every other mode is ready from creation
+  -- 0009: every mode with a human Tireur now has the same preparation phase.
   perform dsa_test.as_user(t);
   select cs.session_id into s from public.dsa_create_session('mini', 'LOCAL') cs;
-  perform dsa_test.eq(c, 'LOCAL tireur_ready', public.dsa_get_state(s)->>'tireur_ready', 'true');
-  perform public.dsa_ask(s);
+  perform dsa_test.eq(c, 'LOCAL starts unready', public.dsa_get_state(s)->>'tireur_ready', 'false');
+  perform dsa_test.eq(c, 'LOCAL starts THINKING', public.dsa_get_state(s)->>'phase', 'THINKING');
+  perform dsa_test.expect_error(c, format('select public.dsa_ask(%L)', s), 'DSA_TIREUR_NOT_READY');
+  perform dsa_test.expect_error(c, format('select public.dsa_guess(%L, %L)', s, 'CAÏN'), 'DSA_TIREUR_NOT_READY');
   st := public.dsa_tireur_ready(s);
-  perform dsa_test.eq(c, 'LOCAL dsa_tireur_ready is a no-op', st->>'awaiting', 'ANSWER');
+  perform dsa_test.eq(c, 'LOCAL ready', st->>'tireur_ready', 'true');
+  perform dsa_test.eq(c, 'LOCAL phase', st->>'phase', 'PLAYING');
+  st := public.dsa_ask(s);
+  perform dsa_test.eq(c, 'LOCAL plays once ready', st->>'awaiting', 'ANSWER');
 
+  -- The AI Tireur has no card to look at, so it is ready at creation.
   select cs.session_id into s from public.dsa_create_session('mini', 'AI_TIREUR') cs;
   perform dsa_test.eq(c, 'AI_TIREUR tireur_ready', public.dsa_get_state(s)->>'tireur_ready', 'true');
   perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_WRONG_ROLE');
   perform public.dsa_ask(s);
 
   select cs.session_id into s from public.dsa_create_session('mini', 'AI_DECOUVREUR') cs;
-  perform dsa_test.eq(c, 'AI_DECOUVREUR tireur_ready', public.dsa_get_state(s)->>'tireur_ready', 'true');
+  perform dsa_test.eq(c, 'AI_DECOUVREUR starts unready', public.dsa_get_state(s)->>'tireur_ready', 'false');
+  perform dsa_test.expect_error(c, format('select public.dsa_ai_decouvreur_step(%L)', s), 'DSA_TIREUR_NOT_READY');
+  perform public.dsa_tireur_ready(s);
   st := public.dsa_ai_decouvreur_step(s);
-  perform dsa_test.eq(c, 'AI_DECOUVREUR plays at once', st->>'awaiting', 'ANSWER');
+  perform dsa_test.eq(c, 'AI_DECOUVREUR plays once ready', st->>'awaiting', 'ANSWER');
 
   ---- privileges
   perform dsa_test.as_postgres();
@@ -1528,7 +1593,7 @@ begin
   perform dsa_test.check(c, r.room_code ~ '^DSA-[0-9]{4}$', 'a room code');
   st := public.dsa_get_state(r.session_id);
   perform dsa_test.eq(c, 'new room waits', st->>'status', 'WAITING');
-  perform dsa_test.eq(c, 'same settings', st->>'settings', '{"input_mode": "VOICE"}');
+  perform dsa_test.eq_json(c, 'same settings', st->'settings', dsa_test.settings('VOICE'));
   perform dsa_test.eq(c, 'display name kept', st->'players'->0->>'display_name', 'Awa');
   perform dsa_test.as_postgres();
   perform dsa_test.eq(c, 'rematch_of', (select gs.rematch_of::text from public.game_sessions gs where gs.id = r.session_id), s::text);
@@ -1569,6 +1634,619 @@ begin
 end;
 $$;
 
+
+
+-- =============================================================================
+-- 15. Timed games (0009): the clock, the settings snapshot, TIME_UP
+-- =============================================================================
+do $$
+declare
+  c        constant text := '15 timer: deadlines';
+  u        uuid := dsa_test.u(1);
+  t        uuid := dsa_test.u(1);
+  d        uuid := dsa_test.u(2);
+  s        uuid;
+  s2       uuid;
+  v_code   text;
+  st       jsonb;
+  v_think  timestamptz;
+  v_play   timestamptz;
+  v_ready  timestamptz;
+begin
+  ---- an untimed game keeps the old behaviour, apart from the preparation phase
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', false);
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'untimed: timed', st->>'timed', 'false');
+  perform dsa_test.eq(c, 'untimed: phase', st->>'phase', 'THINKING');
+  perform dsa_test.check(c, st->'think_ends_at' = 'null'::jsonb, 'untimed: no thinking deadline');
+  perform dsa_test.check(c, st->'play_ends_at' = 'null'::jsonb, 'untimed: no game deadline');
+  perform dsa_test.check(c, st->>'server_now' is not null, 'untimed: server_now is always sent');
+  st := public.dsa_tireur_ready(s);
+  perform dsa_test.eq(c, 'untimed: phase after ready', st->>'phase', 'PLAYING');
+  perform dsa_test.check(c, st->'play_ends_at' = 'null'::jsonb, 'untimed: still no game deadline');
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+
+  ---- a timed LOCAL game: the thinking clock starts at creation
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', false, '{"timed": true}'::jsonb);
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq_json(c, 'timed settings', st->'settings', dsa_test.settings('BUTTONS', true));
+  perform dsa_test.eq(c, 'timed: timed', st->>'timed', 'true');
+  perform dsa_test.eq(c, 'timed: phase', st->>'phase', 'THINKING');
+  perform dsa_test.eq(c, 'timed: redraws_used', st->>'redraws_used', '0');
+  perform dsa_test.eq(c, 'timed: redraws_left', st->>'redraws_left', '2');
+  perform dsa_test.eq(c, 'think_ends_at is now + think_seconds',
+    (st->>'think_ends_at')::timestamptz::text, (now() + interval '40 seconds')::text);
+  perform dsa_test.check(c, st->'play_ends_at' = 'null'::jsonb, 'the game clock waits for the end of the thinking time');
+  perform dsa_test.eq(c, 'server_now is the server clock', (st->>'server_now')::timestamptz::text, now()::text);
+
+  ---- "Je suis prêt" ends the thinking time early and fixes the game deadline
+  st := public.dsa_tireur_ready(s);
+  perform dsa_test.eq(c, 'ready: phase', st->>'phase', 'PLAYING');
+  perform dsa_test.eq(c, 'ready: think_ends_at moves to now', (st->>'think_ends_at')::timestamptz::text, now()::text);
+  perform dsa_test.eq(c, 'play_ends_at is now + play_seconds',
+    (st->>'play_ends_at')::timestamptz::text, (now() + interval '120 seconds')::text);
+  v_play := (st->>'play_ends_at')::timestamptz;
+
+  ---- nothing extends it: rewinds, going back and refused names all cost the same time
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+  perform dsa_test.play(c, s, 'HOMME', 'OUI');
+  perform public.dsa_rewind(s, 1);
+  perform dsa_test.play(c, s, 'HOMME', 'OUI');
+  perform public.dsa_go_back(s, 0);
+  perform public.dsa_guess(s, 'ABEL');
+  perform public.dsa_confirm_guess(s, 'NON');
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'play_ends_at never moves', (st->>'play_ends_at')::timestamptz::text, v_play::text);
+
+  ---- the thinking deadline ends the phase, and the game time starts from it
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', false, '{"timed": true}'::jsonb);
+  perform dsa_test.as_postgres();
+  update public.game_sessions gs set think_ends_at = now() - interval '3 seconds' where gs.id = s;
+  select gs.think_ends_at into v_think from public.game_sessions gs where gs.id = s;
+  perform dsa_test.as_user(u);
+  st := public.dsa_check_time(s);
+  perform dsa_test.eq(c, 'deadline: phase', st->>'phase', 'PLAYING');
+  perform dsa_test.eq(c, 'deadline: tireur_ready', st->>'tireur_ready', 'true');
+  perform dsa_test.eq(c, 'the game time starts at the thinking deadline, not at the check',
+    (st->>'play_ends_at')::timestamptz::text, (v_think + interval '120 seconds')::text);
+  perform dsa_test.as_postgres();
+  select gs.tireur_ready_at into v_ready from public.game_sessions gs where gs.id = s;
+  perform dsa_test.eq(c, 'ready at the deadline', v_ready::text, v_think::text);
+  perform dsa_test.eq(c, 'one TIREUR_READY move, with its reason',
+    (select string_agg(m.payload->>'reason', ',') from public.game_moves m
+     where m.game_session_id = s and m.payload->>'event' = 'TIREUR_READY'), 'DEADLINE');
+  perform dsa_test.as_user(u);
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');  -- the game really is on
+
+  ---- in a room the clock only starts once both players are present
+  s2 := dsa_test.new_session(t, 'HUMAN_VS_HUMAN', 'TIREUR', 'P/lie-a-adam/classe-1/le-meurtrier--cain', false, '{"timed": true}'::jsonb);
+  st := public.dsa_get_state(s2);
+  perform dsa_test.eq(c, 'room: WAITING', st->>'status', 'WAITING');
+  perform dsa_test.check(c, st->'think_ends_at' = 'null'::jsonb, 'the room clock must not start before the second player');
+  perform dsa_test.expect_error(c, format('select * from public.dsa_get_my_secret(%L)', s2), 'DSA_WAITING_FOR_PLAYER');
+  v_code := st->>'room_code';
+  perform dsa_test.as_user(d);
+  perform public.dsa_join_session(v_code, 'Bill');
+  perform dsa_test.as_user(t);
+  st := public.dsa_get_state(s2);
+  perform dsa_test.eq(c, 'room: PLAYING', st->>'status', 'PLAYING');
+  perform dsa_test.eq(c, 'room: the thinking clock starts on the join',
+    (st->>'think_ends_at')::timestamptz::text, (now() + interval '40 seconds')::text);
+  perform dsa_test.check(c, (select count(*) from public.dsa_get_my_secret(s2)) = 1, 'the card is readable once both are there');
+
+  ---- the AI Tireur has no preparation phase: the game time starts at once
+  perform dsa_test.as_user(u);
+  select cs.session_id into s from public.dsa_create_session('mini', 'AI_TIREUR', null, null, '{"timed": true}'::jsonb) cs;
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'AI_TIREUR: phase', st->>'phase', 'PLAYING');
+  perform dsa_test.check(c, st->'think_ends_at' = 'null'::jsonb, 'AI_TIREUR has no thinking time');
+  perform dsa_test.eq(c, 'AI_TIREUR: play_ends_at',
+    (st->>'play_ends_at')::timestamptz::text, (now() + interval '120 seconds')::text);
+end;
+$$;
+
+do $$
+declare
+  c   constant text := '15 timer: app_settings';
+  u   uuid := dsa_test.u(1);
+  adm uuid := dsa_test.u(4);
+  s   uuid;
+  st  jsonb;
+begin
+  ---- the defaults of the single row
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'one row', (select count(*)::text from public.app_settings), '1');
+  perform dsa_test.eq(c, 'defaults',
+    (select format('%s/%s/%s', a.think_seconds, a.play_seconds, a.max_redraws) from public.dsa_app_settings() a),
+    '40/120/2');
+
+  ---- bounds
+  perform dsa_test.expect_error(c, 'update public.app_settings set think_seconds = 9', '23514');
+  perform dsa_test.expect_error(c, 'update public.app_settings set think_seconds = 601', '23514');
+  perform dsa_test.expect_error(c, 'update public.app_settings set play_seconds = 29', '23514');
+  perform dsa_test.expect_error(c, 'update public.app_settings set play_seconds = 1801', '23514');
+  perform dsa_test.expect_error(c, 'update public.app_settings set max_redraws = -1', '23514');
+  perform dsa_test.expect_error(c, 'update public.app_settings set max_redraws = 6', '23514');
+  perform dsa_test.expect_error(c, 'insert into public.app_settings (id) values (false)', '23514');
+
+  ---- RLS: an admin writes, a player does not
+  perform dsa_test.as_user(u);
+  perform dsa_test.eq(c, 'a player sees no settings row', (select count(*)::text from public.app_settings), '0');
+  update public.app_settings set think_seconds = 90;
+  perform dsa_test.eq(c, 'a player changes nothing',
+    (select count(*)::text from public.app_settings a where a.think_seconds = 90), '0');
+  perform dsa_test.expect_error(c, 'select * from public.dsa_app_settings()', '42501');
+
+  perform dsa_test.as_user(adm);
+  perform dsa_test.eq(c, 'an admin reads the row', (select count(*)::text from public.app_settings), '1');
+
+  ---- a running game keeps the durations it was created with
+  perform dsa_test.as_user(u);
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', false, '{"timed": true}'::jsonb);
+  perform dsa_test.as_user(adm);
+  update public.app_settings set think_seconds = 90, play_seconds = 300, max_redraws = 4;
+  perform dsa_test.as_user(u);
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'the running game keeps think_seconds', st->'settings'->>'think_seconds', '40');
+  perform dsa_test.eq(c, 'the running game keeps play_seconds', st->'settings'->>'play_seconds', '120');
+  perform dsa_test.eq(c, 'the running game keeps max_redraws', st->'settings'->>'max_redraws', '2');
+  st := public.dsa_tireur_ready(s);
+  perform dsa_test.eq(c, 'the running game uses its own play_seconds',
+    (st->>'play_ends_at')::timestamptz::text, (now() + interval '120 seconds')::text);
+
+  ---- a new game takes the new values
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', false, '{"timed": true}'::jsonb);
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'a new game takes think_seconds', st->'settings'->>'think_seconds', '90');
+  perform dsa_test.eq(c, 'a new game takes play_seconds', st->'settings'->>'play_seconds', '300');
+  perform dsa_test.eq(c, 'a new game takes max_redraws', st->'settings'->>'max_redraws', '4');
+  perform dsa_test.eq(c, 'a new game uses the new thinking time',
+    (st->>'think_ends_at')::timestamptz::text, (now() + interval '90 seconds')::text);
+
+  ---- an untimed game copies max_redraws but no duration
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', false);
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'untimed copies max_redraws', st->'settings'->>'max_redraws', '4');
+  perform dsa_test.check(c, st->'settings'->'think_seconds' is null, 'an untimed game stores no durations');
+
+  ---- dsa_timer_defaults: any player may read the durations (they are the rules
+  ---- of the game, not a secret), so "Préparer la partie" can quote them.
+  perform dsa_test.eq(c, 'a player reads the durations',
+    public.dsa_timer_defaults()::text, dsa_test.timer_defaults()::text);
+  perform dsa_test.eq(c, 'and they are the new ones', public.dsa_timer_defaults()->>'think_seconds', '90');
+
+  ---- back to the defaults for the blocks that follow
+  perform dsa_test.as_user(adm);
+  update public.app_settings set think_seconds = 40, play_seconds = 120, max_redraws = 2;
+  perform dsa_test.as_user(u);
+  perform dsa_test.eq(c, 'the defaults again', public.dsa_timer_defaults()->>'play_seconds', '120');
+
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, has_function_privilege('authenticated', 'public.dsa_timer_defaults()', 'execute'),
+    'authenticated must be able to execute dsa_timer_defaults');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_timer_defaults()', 'execute'),
+    'anon must not execute dsa_timer_defaults');
+  perform dsa_test.as_user(u);
+end;
+$$;
+
+do $$
+declare
+  c        constant text := '15 timer: TIME_UP';
+  t        uuid := dsa_test.u(1);
+  d        uuid := dsa_test.u(2);
+  s        uuid;
+  s_ai     uuid;
+  s_aid    uuid;
+  st       jsonb;
+  rp       jsonb;
+  v_play   timestamptz;
+begin
+  ---- the deadline is checked before anything else, from every mutating RPC
+  s := dsa_test.new_session(t, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', true, '{"timed": true}'::jsonb);
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+  perform public.dsa_ask(s);  -- a question is waiting for its answer
+  perform dsa_test.as_postgres();
+  update public.game_sessions gs set play_ends_at = now() - interval '1 second' where gs.id = s;
+  select gs.play_ends_at into v_play from public.game_sessions gs where gs.id = s;
+  perform dsa_test.as_user(t);
+
+  -- A move that arrives too late raises and changes nothing at all: the raise
+  -- rolls its own transaction back, so the move never lands.
+  perform dsa_test.expect_error(c, format('select public.dsa_answer(%L, %L)', s, 'OUI'), 'DSA_TIME_UP');
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'a refused move records nothing',
+    (select count(*)::text from public.game_moves m where m.game_session_id = s and m.move_type = 'ANSWER'), '1');
+  perform dsa_test.as_user(t);
+
+  -- dsa_check_time is what writes TIME_UP down, for this device and the other one.
+  st := public.dsa_check_time(s);
+  perform dsa_test.eq(c, 'dsa_check_time records TIME_UP', st->>'status', 'TIME_UP');
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'status', (select gs.status from public.game_sessions gs where gs.id = s), 'TIME_UP');
+  perform dsa_test.check(c, (select gs.winner is null from public.game_sessions gs where gs.id = s), 'nobody wins when the time is up');
+  perform dsa_test.eq(c, 'awaiting', (select gs.awaiting from public.game_sessions gs where gs.id = s), 'NONE');
+  perform dsa_test.eq(c, 'ended_at is the deadline itself',
+    (select gs.ended_at::text from public.game_sessions gs where gs.id = s), v_play::text);
+  perform dsa_test.eq(c, 'one TIME_UP move',
+    (select count(*)::text from public.game_moves m where m.game_session_id = s and m.payload->>'event' = 'TIME_UP'), '1');
+  perform dsa_test.as_user(t);
+
+  perform dsa_test.expect_error(c, format('select public.dsa_ask(%L)', s), 'DSA_TIME_UP');
+  perform dsa_test.expect_error(c, format('select public.dsa_guess(%L, %L)', s, 'CAÏN'), 'DSA_TIME_UP');
+  perform dsa_test.expect_error(c, format('select public.dsa_confirm_guess(%L, %L)', s, 'OUI'), 'DSA_TIME_UP');
+  perform dsa_test.expect_error(c, format('select public.dsa_go_back(%L, 0)', s), 'DSA_TIME_UP');
+  perform dsa_test.expect_error(c, format('select public.dsa_rewind(%L, 1)', s), 'DSA_TIME_UP');
+  perform dsa_test.expect_error(c, format('select public.dsa_tireur_ready(%L)', s), 'DSA_TIME_UP');
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_TIME_UP');
+  perform dsa_test.expect_error(c, format('select public.dsa_abandon(%L)', s), 'DSA_TIME_UP');
+  -- and it stays at exactly one TIME_UP move
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'still one TIME_UP move',
+    (select count(*)::text from public.game_moves m where m.game_session_id = s and m.payload->>'event' = 'TIME_UP'), '1');
+  perform dsa_test.as_user(t);
+
+  ---- the end of a timed game reveals the name and the book's path, like any other
+  rp := public.dsa_get_revealed_path(s);
+  perform dsa_test.eq(c, 'revealed status', rp->>'status', 'TIME_UP');
+  perform dsa_test.check(c, rp->'winner' = 'null'::jsonb, 'no winner');
+  perform dsa_test.eq(c, 'revealed name', rp->'secret'->>'name', 'CAÏN');
+  perform dsa_test.eq(c, 'stats.timed', rp->'stats'->>'timed', 'true');
+  perform dsa_test.eq(c, 'stats.play_seconds', rp->'stats'->>'play_seconds', '120');
+  perform dsa_test.check(c, rp->'stats'->'found_in_seconds' = 'null'::jsonb, 'nothing was found');
+  perform dsa_test.check(c, jsonb_array_length(public.dsa_get_solution_path(s)->'path') > 0, 'the book path is available after TIME_UP');
+
+  ---- dsa_check_time turns an idle game into TIME_UP without raising
+  s := dsa_test.new_session(t, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', true, '{"timed": true}'::jsonb);
+  perform dsa_test.as_postgres();
+  update public.game_sessions gs set play_ends_at = now() - interval '1 second' where gs.id = s;
+  perform dsa_test.as_user(t);
+  st := public.dsa_check_time(s);
+  perform dsa_test.eq(c, 'dsa_check_time reports TIME_UP', st->>'status', 'TIME_UP');
+  perform dsa_test.check(c, st->'prompt' = 'null'::jsonb, 'no prompt once the time is up');
+  st := public.dsa_check_time(s);
+  perform dsa_test.eq(c, 'dsa_check_time is idempotent', st->>'status', 'TIME_UP');
+
+  ---- an untimed game is never touched by the clock
+  s := dsa_test.new_session(t, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', true);
+  st := public.dsa_check_time(s);
+  perform dsa_test.eq(c, 'untimed: dsa_check_time changes nothing', st->>'status', 'PLAYING');
+
+  ---- the AI Découvreur also stops at the deadline
+  perform dsa_test.as_user(t);
+  select cs.session_id into s_aid from public.dsa_create_session('mini', 'AI_DECOUVREUR', null, null, '{"timed": true}'::jsonb) cs;
+  perform public.dsa_tireur_ready(s_aid);
+  perform dsa_test.as_postgres();
+  update public.game_sessions gs set play_ends_at = now() - interval '1 second' where gs.id = s_aid;
+  perform dsa_test.as_user(t);
+  perform dsa_test.expect_error(c, format('select public.dsa_ai_decouvreur_step(%L)', s_aid), 'DSA_TIME_UP');
+
+  ---- found_in_seconds on a discovered timed game
+  s := dsa_test.new_session(t, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', true, '{"timed": true}'::jsonb);
+  perform dsa_test.as_postgres();
+  -- 72 seconds of game time have gone by (now() is frozen inside this transaction)
+  update public.game_sessions gs set tireur_ready_at = now() - interval '72 seconds' where gs.id = s;
+  perform dsa_test.as_user(t);
+  perform public.dsa_guess(s, 'CAÏN');
+  perform public.dsa_confirm_guess(s, 'OUI');
+  rp := public.dsa_get_revealed_path(s);
+  perform dsa_test.eq(c, 'discovered', rp->>'status', 'DISCOVERED');
+  perform dsa_test.eq(c, 'found_in_seconds', rp->'stats'->>'found_in_seconds', '72');
+  perform dsa_test.eq(c, 'out of play_seconds', rp->'stats'->>'play_seconds', '120');
+
+  ---- privileges
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, has_function_privilege('authenticated', 'public.dsa_check_time(uuid)', 'execute'),
+    'authenticated must be able to execute dsa_check_time');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_check_time(uuid)', 'execute'),
+    'anon must not execute dsa_check_time');
+  perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_app_settings()', 'execute'),
+    'dsa_app_settings must stay internal');
+  perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_tick(public.game_sessions)', 'execute'),
+    'dsa_tick must stay internal');
+  perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_end_thinking(public.game_sessions,timestamptz,text)', 'execute'),
+    'dsa_end_thinking must stay internal');
+  perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_assert_time(public.game_sessions)', 'execute'),
+    'dsa_assert_time must stay internal');
+  perform dsa_test.check(c, not has_function_privilege('authenticated', 'public.dsa_solution_path(uuid,uuid)', 'execute'),
+    'dsa_solution_path must stay internal');
+end;
+$$;
+
+
+-- =============================================================================
+-- 16. Changing the name before the start (0009)
+-- =============================================================================
+do $$
+declare
+  c        constant text := '16 redraw';
+  t        uuid := dsa_test.u(1);
+  d        uuid := dsa_test.u(2);
+  x        uuid := dsa_test.u(3);
+  adm      uuid := dsa_test.u(4);
+  s        uuid;
+  v_code   text;
+  st       jsonb;
+  v_first  uuid;
+  v_second uuid;
+  v_third  uuid;
+  v_names  text[];
+  v_think  timestamptz;
+  v_main   uuid;
+begin
+  ---- a timed LOCAL game: two changes, then no more
+  s := dsa_test.new_session(t, 'LOCAL', null, null, false, '{"timed": true}'::jsonb);
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq(c, 'redraws_used', st->>'redraws_used', '0');
+  perform dsa_test.eq(c, 'redraws_left', st->>'redraws_left', '2');
+  perform dsa_test.as_postgres();
+  select gs.secret_node_id into v_first from public.game_secrets gs where gs.game_session_id = s;
+  -- the thinking clock is about to be restarted, so move it out of the way first
+  update public.game_sessions gs set think_ends_at = now() + interval '5 seconds' where gs.id = s;
+  perform dsa_test.as_user(t);
+
+  st := public.dsa_redraw_secret(s);
+  perform dsa_test.eq(c, 'after one change: used', st->>'redraws_used', '1');
+  perform dsa_test.eq(c, 'after one change: left', st->>'redraws_left', '1');
+  perform dsa_test.eq(c, 'still in the preparation phase', st->>'phase', 'THINKING');
+  perform dsa_test.eq(c, 'a new name gives a fresh thinking time',
+    (st->>'think_ends_at')::timestamptz::text, (now() + interval '40 seconds')::text);
+  perform dsa_test.as_postgres();
+  select gs.secret_node_id into v_second from public.game_secrets gs where gs.game_session_id = s;
+  perform dsa_test.check(c, v_second <> v_first, 'the card really changed');
+  perform dsa_test.eq(c, 'the old name is remembered',
+    (select gs.previous_node_ids::text from public.game_secrets gs where gs.game_session_id = s),
+    ('{' || v_first::text || '}'));
+  perform dsa_test.as_user(t);
+
+  st := public.dsa_redraw_secret(s);
+  perform dsa_test.eq(c, 'after two changes: used', st->>'redraws_used', '2');
+  perform dsa_test.eq(c, 'after two changes: left', st->>'redraws_left', '0');
+  perform dsa_test.as_postgres();
+  select gs.secret_node_id into v_third from public.game_secrets gs where gs.game_session_id = s;
+  perform dsa_test.check(c, v_third <> v_first and v_third <> v_second, 'a name already drawn never comes back');
+  perform dsa_test.as_user(t);
+
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_NO_REDRAW_LEFT');
+
+  v_main := s;
+
+  ---- a name already drawn never comes back, proved on a graph with two cards
+  --   only: after ADAM the one name left is CAÏN, and then there is none.
+  perform dsa_test.as_postgres();
+  update public.graph_nodes n
+  set review_status = 'DRAFT'
+  where n.node_type = 'CHARACTER'
+    and n.graph_id = (select g.id from public.graphs g where g.slug = 'mini')
+    and n.id not in (dsa_test.nid('P/lie-a-adam/classe-1/premier-homme--adam'),
+                     dsa_test.nid('P/lie-a-adam/classe-1/le-meurtrier--cain'));
+  perform dsa_test.as_user(t);
+  s := dsa_test.new_session(t, 'LOCAL', null, 'P/lie-a-adam/classe-1/premier-homme--adam', false);
+  st := public.dsa_redraw_secret(s);
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq(c, 'the only other card is drawn',
+    (select n.label from public.game_secrets gs join public.graph_nodes n on n.id = gs.secret_node_id
+     where gs.game_session_id = s), 'CAÏN');
+  perform dsa_test.as_user(t);
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_NO_PLAYABLE_SECRET');
+  perform dsa_test.as_postgres();
+  update public.graph_nodes n
+  set review_status = 'APPROVED'
+  where n.node_type = 'CHARACTER'
+    and n.graph_id = (select g.id from public.graphs g where g.slug = 'mini');
+  perform dsa_test.eq(c, 'the graph is restored',
+    (select count(*)::text from public.graph_nodes n
+     join public.graphs g on g.id = n.graph_id
+     where g.slug = 'mini' and n.review_status = 'APPROVED'), '30');
+  perform dsa_test.as_user(t);
+  s := v_main;
+
+  ---- nothing about the names leaks
+  st := public.dsa_get_state(s);
+  perform dsa_test.check(c, position(v_first::text in st::text) = 0, 'the first card leaked in the state');
+  perform dsa_test.check(c, position(v_second::text in st::text) = 0, 'the second card leaked in the state');
+  perform dsa_test.check(c, position(v_third::text in st::text) = 0, 'the current card leaked in the state');
+  perform dsa_test.as_postgres();
+  select array_agg(n.label) into v_names from public.graph_nodes n where n.id in (v_first, v_second, v_third);
+  perform dsa_test.as_user(t);
+  perform dsa_test.check(c, not exists (
+    select 1 from unnest(v_names) nm where position(nm in public.dsa_get_state(s)::text) > 0
+  ), 'a drawn name leaked in the state');
+  perform dsa_test.as_postgres();
+  perform dsa_test.eq_json(c, 'the REDRAW move says only that the name changed',
+    (select m.payload from public.game_moves m
+     where m.game_session_id = s and m.payload->>'event' = 'REDRAW' order by m.seq desc limit 1),
+    '{"event": "REDRAW"}');
+  perform dsa_test.check(c, not exists (
+    select 1 from public.game_moves m
+    where m.game_session_id = s and m.payload->>'event' = 'REDRAW' and m.node_id is not null
+  ), 'a REDRAW move must carry no node');
+  perform dsa_test.as_user(t);
+
+  ---- once the questions have started, the name is fixed: only abandoning is left
+  perform public.dsa_tireur_ready(s);
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_GAME_STARTED');
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_GAME_STARTED');
+  perform public.dsa_abandon(s);
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_GAME_OVER');
+
+  ---- it works without the timer too (GAME_RULES, point 3)
+  s := dsa_test.new_session(t, 'LOCAL', null, null, false);
+  st := public.dsa_redraw_secret(s);
+  perform dsa_test.eq(c, 'untimed: used', st->>'redraws_used', '1');
+  perform dsa_test.check(c, st->'think_ends_at' = 'null'::jsonb, 'untimed: still no clock');
+
+  ---- a room: only the Tireur, only before "Je suis prêt"
+  s := dsa_test.new_session(t, 'HUMAN_VS_HUMAN', 'TIREUR', null, false);
+  st := public.dsa_get_state(s);
+  v_code := st->>'room_code';
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_WAITING_FOR_PLAYER');
+  perform dsa_test.as_user(d);
+  perform public.dsa_join_session(v_code, 'Bill');
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_WRONG_ROLE');
+  perform dsa_test.as_user(x);
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_NOT_PLAYER');
+  perform dsa_test.as_user(t);
+  st := public.dsa_redraw_secret(s);
+  perform dsa_test.eq(c, 'room: used', st->>'redraws_used', '1');
+  -- the Découvreur is told that the name changed, and nothing else
+  perform dsa_test.as_user(d);
+  perform dsa_test.eq(c, 'the Découvreur sees the REDRAW event',
+    (select count(*)::text from public.game_moves m
+     where m.game_session_id = s and m.payload->>'event' = 'REDRAW'), '1');
+  perform dsa_test.eq(c, 'the Découvreur still reads no secret row',
+    (select count(*)::text from public.game_secrets gs where gs.game_session_id = s), '0');
+  perform dsa_test.as_user(t);
+  perform public.dsa_tireur_ready(s);
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_GAME_STARTED');
+
+  ---- max_redraws = 0 turns the feature off
+  perform dsa_test.as_user(adm);
+  update public.app_settings set max_redraws = 0;
+  perform dsa_test.as_user(t);
+  s := dsa_test.new_session(t, 'LOCAL', null, null, false);
+  perform dsa_test.eq(c, 'no change allowed', public.dsa_get_state(s)->>'redraws_left', '0');
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_NO_REDRAW_LEFT');
+  perform dsa_test.as_user(adm);
+  update public.app_settings set max_redraws = 2;
+  perform dsa_test.as_user(t);
+
+  ---- privileges
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, has_function_privilege('authenticated', 'public.dsa_redraw_secret(uuid)', 'execute'),
+    'authenticated must be able to execute dsa_redraw_secret');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_redraw_secret(uuid)', 'execute'),
+    'anon must not execute dsa_redraw_secret');
+end;
+$$;
+
+
+-- =============================================================================
+-- 17. The book's path to the name (0009)
+-- =============================================================================
+do $$
+declare
+  c        constant text := '17 solution path';
+  t        uuid := dsa_test.u(1);
+  d        uuid := dsa_test.u(2);
+  x        uuid := dsa_test.u(3);
+  v_secret uuid;
+  v_name   text;
+  v_played uuid;
+  v_solved uuid;
+  v_path   jsonb;
+  v_step   jsonb;
+  st       jsonb;
+  v_n      integer := 0;
+  v_graph  uuid;
+  v_cards  uuid[];
+begin
+  perform dsa_test.as_postgres();
+  select g.id into v_graph from public.graphs g where g.slug = 'mini';
+  select array_agg(pc.node_id order by pc.node_id) into v_cards
+  from public.dsa_playable_characters(v_graph) pc;
+  perform dsa_test.as_user(t);
+
+  ---- every playable card of the mini graph
+  foreach v_secret in array v_cards loop
+    v_n := v_n + 1;
+    perform dsa_test.as_postgres();
+    select n.label into v_name from public.graph_nodes n where n.id = v_secret;
+
+    -- one finished game, only to read the book's path for that card
+    perform dsa_test.as_user(t);
+    select cs.session_id into v_solved from public.dsa_create_session('mini', 'LOCAL') cs;
+    perform dsa_test.as_postgres();
+    update public.game_secrets gs
+    set secret_node_id = v_secret,
+        secret_character_id = (select n.character_id from public.graph_nodes n where n.id = v_secret)
+    where gs.game_session_id = v_solved;
+    perform dsa_test.as_user(t);
+    perform public.dsa_abandon(v_solved);
+
+    v_path := public.dsa_get_solution_path(v_solved);
+    perform dsa_test.eq(c, v_name || ': secret name', v_path->'secret'->>'name', v_name);
+    perform dsa_test.check(c, jsonb_array_length(v_path->'path') > 0, v_name || ': the path must not be empty');
+
+    -- the same entry shape as path[] (so PathGraph renders it unchanged)
+    for v_step in select * from jsonb_array_elements(v_path->'path') loop
+      perform dsa_test.eq_json(c, v_name || ': entry keys',
+        to_jsonb((select array_agg(k order by k) from jsonb_object_keys(v_step) k)),
+        '["answer_label", "node_id", "node_type", "prompt_kind", "step_index", "target_text", "text"]');
+      perform dsa_test.check(c,
+        (v_step->>'prompt_kind' = 'SPINE') = (v_step->'target_text' <> 'null'::jsonb),
+        v_name || ': only SPINE steps carry a target_text');
+    end loop;
+
+    -- and it really is the way there: replaying it in a second game reaches the card
+    select cs.session_id into v_played from public.dsa_create_session('mini', 'LOCAL') cs;
+    perform dsa_test.as_postgres();
+    update public.game_secrets gs
+    set secret_node_id = v_secret,
+        secret_character_id = (select n.character_id from public.graph_nodes n where n.id = v_secret)
+    where gs.game_session_id = v_played;
+    perform dsa_test.as_user(t);
+    perform public.dsa_tireur_ready(v_played);
+
+    for v_step in select * from jsonb_array_elements(v_path->'path') loop
+      perform dsa_test.eq(c, v_name || ': prompt at step ' || (v_step->>'step_index'),
+        dsa_test.prompt(v_played), v_step->>'text');
+      perform public.dsa_ask(v_played);
+      perform public.dsa_answer(v_played, v_step->>'answer_label');
+    end loop;
+
+    st := public.dsa_get_state(v_played);
+    perform dsa_test.check(c, st->'prompt' = 'null'::jsonb and st->>'dead_end' = 'false',
+      v_name || ': the book path must end on the card, got ' || st::text);
+    -- and on THAT card: following the book's answers lands exactly on the secret
+    perform dsa_test.as_postgres();
+    perform dsa_test.eq(c, v_name || ': the book path lands on the card itself',
+      (select d.node_id::text from public.dsa_derive_position(v_played) d), v_secret::text);
+    perform dsa_test.as_user(t);
+    perform dsa_test.eq_json(c, v_name || ': the played path equals the book path', st->'path', v_path->'path');
+    st := public.dsa_guess(v_played, v_name);
+    perform public.dsa_confirm_guess(v_played, 'OUI');
+    perform dsa_test.eq(c, v_name || ': discovered', public.dsa_get_state(v_played)->>'status', 'DISCOVERED');
+    perform dsa_test.eq_json(c, v_name || ': same path after the end',
+      public.dsa_get_solution_path(v_played)->'path', v_path->'path');
+  end loop;
+
+  perform dsa_test.eq(c, 'every playable card of mini was checked', v_n::text, '13');
+
+  ---- refused before the end, and to outsiders
+  perform dsa_test.as_user(t);
+  v_played := dsa_test.new_session(t, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain', true);
+  perform dsa_test.expect_error(c, format('select public.dsa_get_solution_path(%L)', v_played), 'DSA_GAME_NOT_OVER');
+  perform dsa_test.play(c, v_played, 'ANCIEN', 'OUI');
+  perform dsa_test.expect_error(c, format('select public.dsa_get_solution_path(%L)', v_played), 'DSA_GAME_NOT_OVER');
+  perform dsa_test.as_user(x);
+  perform dsa_test.expect_error(c, format('select public.dsa_get_solution_path(%L)', v_played), 'DSA_NOT_PLAYER');
+  perform dsa_test.as_user(t);
+  perform public.dsa_abandon(v_played);
+  perform dsa_test.eq(c, 'available after ABANDONED',
+    public.dsa_get_solution_path(v_played)->'secret'->>'name', 'CAÏN');
+
+  ---- a room: both players read it after the end
+  v_played := dsa_test.new_session(t, 'HUMAN_VS_HUMAN', 'TIREUR', 'E/fils-de-zebedee--jacques', false);
+  st := public.dsa_get_state(v_played);
+  perform dsa_test.as_user(d);
+  perform public.dsa_join_session(st->>'room_code', 'Bill');
+  perform dsa_test.expect_error(c, format('select public.dsa_get_solution_path(%L)', v_played), 'DSA_GAME_NOT_OVER');
+  perform public.dsa_abandon(v_played);
+  perform dsa_test.eq(c, 'the Découvreur learns the book path too',
+    public.dsa_get_solution_path(v_played)->'secret'->>'name', 'JACQUES');
+  perform dsa_test.eq(c, 'a homonym is flagged on the book path',
+    public.dsa_get_solution_path(v_played)->'secret'->>'has_homonyms', 'true');
+
+  ---- privileges
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, has_function_privilege('authenticated', 'public.dsa_get_solution_path(uuid)', 'execute'),
+    'authenticated must be able to execute dsa_get_solution_path');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_get_solution_path(uuid)', 'execute'),
+    'anon must not execute dsa_get_solution_path');
+end;
+$$;
 
 -- =============================================================================
 -- All blocks passed: remember it across the rollback with a session-level

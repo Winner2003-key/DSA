@@ -69,6 +69,7 @@ it('shows and speaks the Tireur\'s incoming question and name call without "Est-
   const offline = new OfflineGameService({ persist: false, secretNodeKey: CAIN });
   setGameService(offline);
   const { sessionId } = await offline.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
+  await offline.tireurReady(sessionId);
   await offline.ask(sessionId);
   const { result } = await renderHook(() => useGame(sessionId, { service: offline }), { wrapper: Providers });
   await waitFor(() => expect(result.current.state?.awaiting).toBe('ANSWER'));

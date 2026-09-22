@@ -17,9 +17,10 @@ export interface GameTableProps {
 
 /**
  * One game on this device: the table header, then the view of whoever holds the
- * phone. In LOCAL the phone goes to the Tireur first (to see the card), then to
- * the Découvreur for the first question, then back and forth with each turn — and
- * nothing of either view is rendered while it is being handed over.
+ * phone. In LOCAL the phone goes to the Tireur first (the preparation phase, with
+ * the thinking time of a timed game), then to the Découvreur for the first
+ * question, then back and forth with each turn — and nothing of either view is
+ * rendered while it is being handed over.
  */
 export function GameTable({ sessionId, game }: GameTableProps) {
   const theme = useTheme();
@@ -39,7 +40,7 @@ export function GameTable({ sessionId, game }: GameTableProps) {
   if (!mustHandOver) {
     if (readyPhase && viewRole === 'TIREUR') content = <TireurReadyView sessionId={sessionId} game={game} />;
     // A room's Découvreur waits on their own phone while the Tireur looks at the card.
-    else if (readyPhase) content = <DecouvreurWaitingView />;
+    else if (readyPhase) content = <DecouvreurWaitingView game={game} />;
     else if (viewRole === 'TIREUR') content = <TireurView sessionId={sessionId} game={game} />;
     else content = <DecouvreurView game={game} />;
   }

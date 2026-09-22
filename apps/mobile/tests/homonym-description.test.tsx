@@ -8,7 +8,7 @@ import { fireEvent } from '@testing-library/react-native';
 import { ResultHeader, SecretCard } from '@/components';
 import type { RevealedPath, Secret } from '@/services/types';
 
-import { renderWithProviders } from './helpers';
+import { makeStats, renderWithProviders } from './helpers';
 
 const JACQUES: Secret = {
   node_id: 'n-jacques',
@@ -22,7 +22,7 @@ const reveal = (secret: Secret): RevealedPath => ({
   status: 'DISCOVERED',
   winner: 'DECOUVREUR',
   path: [],
-  stats: { questions: 7, non: 1, backs: 0, rewinds: 0 },
+  stats: makeStats({ questions: 7, non: 1 }),
   secret,
 });
 
@@ -66,7 +66,7 @@ describe('the result screen header', () => {
   });
 
   it('prints the server stats instead of counting on the client', async () => {
-    const screen = await renderWithProviders(<ResultHeader reveal={{ ...reveal(CAIN), stats: { questions: 8, non: 2, backs: 1, rewinds: 1 } }} />);
+    const screen = await renderWithProviders(<ResultHeader reveal={{ ...reveal(CAIN), stats: makeStats({ questions: 8, non: 2, backs: 1, rewinds: 1 }) }} />);
     expect(screen.getByTestId('result-stats')).toHaveTextContent(/8 questions.*2 non.*2 retours/);
   });
 });

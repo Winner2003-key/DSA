@@ -131,6 +131,7 @@ describe('the Découvreur conversation', () => {
     const local = new OfflineGameService({ persist: false, secretNodeKey: JOSUE });
     setGameService(local);
     const { sessionId } = await local.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
+    await local.tireurReady(sessionId);
     for (const label of ['OUI', 'OUI', 'NON', 'NON']) {
       await local.ask(sessionId);
       await local.answer(sessionId, label);

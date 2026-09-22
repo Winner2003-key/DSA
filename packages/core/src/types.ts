@@ -7,7 +7,8 @@ export type GroupKind = 'CLASSE' | 'TOME' | 'ALIAS' | 'OTHER';
 export type AnswerClass = 'OUI' | 'NON' | 'OUI_REPETE' | 'NON_REPETE' | 'JE_NE_SAIS_PAS' | 'AUTRE';
 export type GameMode = 'HUMAN_VS_HUMAN' | 'AI_TIREUR' | 'AI_DECOUVREUR' | 'LOCAL';
 export type Role = 'TIREUR' | 'DECOUVREUR';
-export type SessionStatus = 'WAITING' | 'READY' | 'PLAYING' | 'DISCOVERED' | 'ABANDONED';
+/** `TIME_UP` (§9) ends a timed game with no winner: both players lose. */
+export type SessionStatus = 'WAITING' | 'READY' | 'PLAYING' | 'DISCOVERED' | 'ABANDONED' | 'TIME_UP';
 export type Awaiting = 'QUESTION' | 'ANSWER' | 'GUESS_CONFIRM' | 'NONE';
 export type GraphStatus = 'DRAFT' | 'PUBLISHED';
 

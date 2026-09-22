@@ -1,4 +1,4 @@
-import type { AnswerClass, Awaiting, GameMode, NodeType, Role, SessionStatus } from '@dsa/core';
+import type { AnswerClass, Awaiting, GameMode, GamePhase, NodeType, Role, SessionStatus } from '@dsa/core';
 
 /** `dsa_get_state().prompt` — the only thing a Découvreur ever learns about the graph. */
 export interface StatePrompt {
@@ -25,12 +25,33 @@ export interface PathEntry {
 /** How the players give their answers. VOICE stays disabled in the UI until S7. */
 export type InputMode = 'VOICE' | 'BUTTONS';
 
-/** `game_sessions.settings`, chosen when the game is created (GRAPH_SPECIFICATION §8). */
+/**
+ * `game_sessions.settings`, chosen when the game is created (GRAPH_SPECIFICATION
+ * §8 and §9). A client only ever sends `input_mode` and `timed`; the server adds
+ * the durations and `max_redraws` from `app_settings`, so a running game keeps
+ * them even when the admin changes the Réglages page.
+ */
 export interface GameSettings {
   input_mode: InputMode;
+  /** "Jouer avec le chronomètre", unchecked by default. */
+  timed: boolean;
+  /** Seconds the Tireur gets to work out the path; only sent for a timed game. */
+  think_seconds: number | null;
+  play_seconds: number | null;
+  /** How many times the Tireur may draw another name before the start. */
+  max_redraws: number;
 }
 
-export const DEFAULT_SETTINGS: GameSettings = { input_mode: 'BUTTONS' };
+/** The two keys a client may choose. Everything else is the server's to fill in. */
+export type ClientSettings = Pick<GameSettings, 'input_mode' | 'timed'>;
+
+export const DEFAULT_SETTINGS: GameSettings = {
+  input_mode: 'BUTTONS',
+  timed: false,
+  think_seconds: null,
+  play_seconds: null,
+  max_redraws: 2,
+};
 
 export interface StatePlayer {
   role: Role;
@@ -58,6 +79,25 @@ export interface GameState {
   tireur_ready: boolean;
   /** `DSA-1234`. The lobby shows it, and the room's Realtime channel is `room:<code>`. */
   room_code: string | null;
+
+  // --- the timer and the name change (GRAPH_SPECIFICATION §9) ---------------
+  /** This game is played with the chronometer. */
+  timed: boolean;
+  /** `THINKING` while the Tireur has the card; `PLAYING` from the first question. */
+  phase: GamePhase;
+  /** End of the thinking time; null in an untimed game. */
+  think_ends_at: string | null;
+  /** End of the game time. Set when the thinking ends, and never moved again. */
+  play_ends_at: string | null;
+  /**
+   * The server's own clock at the moment it answered. Countdowns are computed
+   * against this, never against the device clock, so a phone whose time is wrong
+   * (or that just reconnected) still shows the right seconds.
+   */
+  server_now: string;
+  /** How many times the Tireur has already drawn another name. Never which ones. */
+  redraws_used: number;
+  redraws_left: number;
 }
 
 export interface Secret {
@@ -79,6 +119,23 @@ export interface GameStats {
   non: number;
   backs: number;
   rewinds: number;
+  /** §9: the game was played with the chronometer. */
+  timed: boolean;
+  /** The limit the players had, in seconds; null when the game was untimed. */
+  play_seconds: number | null;
+  /** From the start of the game phase to the discovery; null unless discovered. */
+  found_in_seconds: number | null;
+}
+
+/**
+ * `dsa_get_solution_path`: the book's own way to the name, available only once
+ * the game is over. The entries have the same shape as a played `path[]`, so the
+ * result screen renders it with the very same `PathGraph`.
+ */
+export interface SolutionPath {
+  status: SessionStatus;
+  path: PathEntry[];
+  secret: Secret | null;
 }
 
 /** `dsa_get_revealed_path`. `secret` stays null until the game ends. */
@@ -91,6 +148,15 @@ export interface RevealedPath {
   secret: Secret | null;
 }
 
+/** `dsa_timer_defaults`: what the chronometer would give a game started now. */
+export interface TimerDefaults {
+  think_seconds: number;
+  play_seconds: number;
+  max_redraws: number;
+}
+
+export const FALLBACK_TIMER_DEFAULTS: TimerDefaults = { think_seconds: 40, play_seconds: 120, max_redraws: 2 };
+
 export interface CreateSessionOptions {
   graphSlug: string;
   mode: GameMode;
@@ -98,7 +164,7 @@ export interface CreateSessionOptions {
   role?: Role;
   displayName?: string;
   /** `p_settings`. Omitted keys take the server defaults. */
-  settings?: Partial<GameSettings>;
+  settings?: Partial<ClientSettings>;
 }
 
 export interface CreatedSession {

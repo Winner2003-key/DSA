@@ -30,10 +30,25 @@ function Table({ sessionId, service, aiThinkingMs = 0 }: { sessionId: string; se
   return <GameTable sessionId={sessionId} game={game} />;
 }
 
-export async function start(mode: GameMode, secretNodeKey: string, aiThinkingMs = 0) {
-  const service = new OfflineGameService({ persist: false, secretNodeKey });
+export interface StartOptions {
+  aiThinkingMs?: number;
+  /** §9: play with the chronometer. */
+  timed?: boolean;
+  /** §9: the clock the timer runs on, so a test can stand at any second. */
+  now?: () => string;
+}
+
+export async function start(mode: GameMode, secretNodeKey: string, options: number | StartOptions = 0) {
+  const { aiThinkingMs = 0, timed = false, now } = typeof options === 'number' ? { aiThinkingMs: options } : options;
+  const service = new OfflineGameService({ persist: false, secretNodeKey, ...(now ? { now } : {}) });
   setGameService(service);
-  const { sessionId } = await service.createSession({ graphSlug: 'mini', mode, settings: { input_mode: 'VOICE' } });
+  const { sessionId } = await service.createSession({
+    graphSlug: 'mini',
+    mode,
+    settings: { input_mode: 'VOICE', timed },
+  });
+  // §9: the preparation phase is not what these tests are about; end it first.
+  if (mode !== 'AI_TIREUR') await service.tireurReady(sessionId);
   const screen = await renderWithProviders(<Table sessionId={sessionId} service={service} aiThinkingMs={aiThinkingMs} />);
   return { service, sessionId, screen };
 }

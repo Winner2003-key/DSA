@@ -71,6 +71,13 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy }: LobbyView
         <AppText variant="small" tone="faint" testID="lobby-input-mode">
           {fr.lobby.inputMode} : {state.settings.input_mode === 'VOICE' ? fr.setup.voice : fr.setup.buttons}
         </AppText>
+        {/* The creator chose for both players; the joiner reads it here. */}
+        <AppText variant="small" tone="faint" testID="lobby-timer">
+          {fr.lobby.timer} : {state.settings.timed ? fr.lobby.timerOn : fr.lobby.timerOff}
+          {state.settings.timed && state.settings.think_seconds !== null && state.settings.play_seconds !== null
+            ? ` · ${fr.setup.timerHint(fr.timer.duration(state.settings.think_seconds), fr.timer.duration(state.settings.play_seconds))}`
+            : ''}
+        </AppText>
       </View>
 
       <SecondaryButton testID="lobby-cancel" label={fr.lobby.cancel} disabled={busy} onPress={onCancel} />

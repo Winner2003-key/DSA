@@ -63,7 +63,7 @@ describe('scenario 1 — secret CAÏN, normal play (AI Tireur)', () => {
     expect(reveal.secret?.description).toBe('Le meurtrier · LIE A ADAM');
     // GRAPH_SPECIFICATION §8: CAÏN is the only CAÏN, so the card shows no description.
     expect(reveal.secret?.has_homonyms).toBe(false);
-    expect(reveal.stats).toEqual({ questions: 7, non: 1, backs: 0, rewinds: 0 });
+    expect(reveal.stats).toMatchObject({ questions: 7, non: 1, backs: 0, rewinds: 0, timed: false });
     expect(reveal.path.map((p) => [p.prompt_kind, p.node_type, p.target_text])[2]).toEqual([
       'SPINE',
       'QUESTION',
@@ -99,6 +99,7 @@ describe('scenario 7 — the Tireur says "QUESTION" once (LOCAL)', () => {
   it('undoes the wrong NON and keeps it out of the revealed path', async () => {
     const offline = service();
     const { sessionId } = await offline.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
+    await offline.tireurReady(sessionId);
 
     const { result } = await renderHook(() => useGame(sessionId, { service: offline, aiAnswerBeatMs: 0 }));
     await waitFor(() => expect(result.current.state).not.toBeNull());
@@ -147,12 +148,13 @@ describe('scenario 7 — the Tireur says "QUESTION" once (LOCAL)', () => {
     // The undone NON is gone from the path the players will be shown.
     expect(reveal.path.some((p) => p.answer_label === 'NON')).toBe(false);
     // …but the server-side counts still include it, and the rewind.
-    expect(reveal.stats).toEqual({ questions: 5, non: 1, backs: 0, rewinds: 1 });
+    expect(reveal.stats).toMatchObject({ questions: 5, non: 1, backs: 0, rewinds: 1 });
   });
 
   it('records the book’s canonical label, not the spoken one', async () => {
     const offline = service();
     const { sessionId } = await offline.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
+    await offline.tireurReady(sessionId);
     const { result } = await renderHook(() => useGame(sessionId, { service: offline, aiAnswerBeatMs: 0 }));
     await waitFor(() => expect(result.current.state).not.toBeNull());
 

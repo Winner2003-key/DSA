@@ -11,26 +11,18 @@ import type { GameService } from '@/services/game-service';
 import type { GameState } from '@/services/types';
 import { useGame } from '@/state/use-game';
 
-import { Providers } from './helpers';
+import { makeState, Providers } from './helpers';
 
 function roomState(overrides: Partial<GameState> = {}): GameState {
-  return {
-    status: 'PLAYING',
+  return makeState({
     mode: 'HUMAN_VS_HUMAN',
-    awaiting: 'QUESTION',
     prompt: { node_id: 'n', text: 'ANCIEN', node_type: 'QUESTION', answer_classes: ['OUI', 'NON'] },
-    dead_end: false,
-    pending_guess: null,
-    path: [],
     players: [
       { role: 'TIREUR', display_name: 'Awa', is_ai: false, is_me: false },
       { role: 'DECOUVREUR', display_name: 'Bill', is_ai: false, is_me: true },
     ],
-    settings: { input_mode: 'BUTTONS' },
-    tireur_ready: true,
-    room_code: 'DSA-4821',
     ...overrides,
-  };
+  });
 }
 
 function fakeService(initial: GameState) {

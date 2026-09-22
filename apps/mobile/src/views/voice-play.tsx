@@ -77,8 +77,12 @@ export interface DecouvreurVoiceProps {
 export function DecouvreurVoice({ game, names, onChooseStep }: DecouvreurVoiceProps) {
   const { speak } = useSpeech();
   const { state } = game;
+  // The countdown reaching zero closes the microphone at once, without waiting
+  // for the server to confirm TIME_UP: a recording in flight is dropped, never
+  // transcribed and never sent (§9).
+  const timeUp = game.countdown.level === 'UP';
   const myTurn = state?.status === 'PLAYING' && state.awaiting === 'QUESTION' && !game.outgoing;
-  const enabled = Boolean(myTurn && !game.busy);
+  const enabled = Boolean(myTurn && !game.busy && !timeUp);
 
   const latest = useRef({ game, names });
   latest.current = { game, names };
@@ -131,7 +135,8 @@ export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: 
   const prompt = state?.prompt ?? null;
   const pendingGuess = state?.pending_guess ?? null;
   const answering = state?.status === 'PLAYING' && ((state.awaiting === 'ANSWER' && prompt !== null) || pendingGuess !== null);
-  const enabled = Boolean(answering && !game.busy && !paused);
+  // Same as the Découvreur: time up closes the microphone immediately.
+  const enabled = Boolean(answering && !game.busy && !paused && game.countdown.level !== 'UP');
 
   const [confirm, setConfirm] = useState<[CanonicalLabel, CanonicalLabel] | null>(null);
   const questionKey = `${state?.path.length ?? 0}:${prompt?.node_id ?? ''}:${pendingGuess ?? ''}:${state?.awaiting ?? ''}`;

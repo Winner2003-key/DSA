@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import type { Role } from '@dsa/core';
 
 import { AppText } from './app-text';
+import { CountdownRing } from './countdown-ring';
 import { fr } from '@/i18n/fr';
 import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
@@ -24,8 +25,9 @@ export function turnOf(game: UseGame): Role | null {
 
 /**
  * The game table seen from above: the two seats, whose turn it is, and how far
- * the game has gone. The middle column keeps a place for the countdown ring of
- * timed games (GRAPH_SPECIFICATION §9), which renders nothing yet.
+ * the game has gone. In a timed game the middle column is the countdown ring
+ * (GRAPH_SPECIFICATION §9); in an untimed one it is just the question counter,
+ * exactly as before.
  */
 export function GameHeader({ game, viewRole }: GameHeaderProps) {
   const theme = useTheme();
@@ -88,9 +90,12 @@ export function GameHeader({ game, viewRole }: GameHeaderProps) {
     <View testID="game-header" style={{ gap: theme.space.xs }}>
       <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: theme.space.xs }}>
         {seat('TIREUR')}
-        <View style={{ minWidth: 88, alignItems: 'center', justifyContent: 'center' }}>
-          {/* Reserved for the §9 countdown ring. Intentionally empty until timed games exist. */}
-          <View testID="timer-slot" />
+        <View style={{ minWidth: 88, alignItems: 'center', justifyContent: 'center', gap: theme.space.xxs }}>
+          <View testID="timer-slot">
+            {/* The ring shows only during play: the thinking time has its own,
+                larger ring on the preparation views. */}
+            {game.phase === 'PLAYING' ? <CountdownRing countdown={game.countdown} size="sm" /> : null}
+          </View>
           <AppText variant="micro" weight="semibold" tone="soft" testID="question-counter">
             {counter}
           </AppText>

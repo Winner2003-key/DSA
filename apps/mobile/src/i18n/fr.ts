@@ -96,6 +96,9 @@ export const fr = {
     disconnected: 'Déconnecté',
     unknown: 'Connexion…',
     inputMode: 'Façon de jouer',
+    timer: 'Chronomètre',
+    timerOn: 'Oui',
+    timerOff: 'Non',
     cancel: 'Annuler la partie',
     leave: 'Quitter la partie',
     declined: (name: string | null) => `${name ?? 'Ton ami'} ne veut pas rejouer.`,
@@ -104,6 +107,9 @@ export const fr = {
   room: {
     tireurLooking: 'Le Tireur découvre sa carte…',
     tireurLookingHint: 'La première question arrive dès qu’il est prêt.',
+    tireurThinking: 'Le Tireur réfléchit…',
+    tireurThinkingHint: 'Il cherche le chemin du livre jusqu’à son nom.',
+    tireurRedrew: 'Le Tireur a changé de nom.',
     readyHint: 'Touche la carte pour la retourner. Retiens bien le nom : c’est lui que ton ami doit trouver.',
     connectionLost: 'Connexion perdue… reconnexion',
     connectionLostHint: 'La partie reprend toute seule dès que le réseau revient.',
@@ -141,6 +147,12 @@ export const fr = {
     buttonsHint: 'Toucher OUI, NON et les autres réponses.',
     start: 'Commencer la partie',
     selected: 'Choisi',
+    timerTitle: 'Le temps',
+    timer: 'Jouer avec le chronomètre',
+    /** Uses the real durations, so the players know what they are choosing. */
+    timerHint: (think: string, play: string) => `${think} pour réfléchir, puis ${play} pour trouver.`,
+    timerOff: 'Sans chronomètre : prenez le temps qu’il vous faut.',
+    timerChosenByCreator: 'Celui qui crée la partie choisit pour les deux joueurs.',
   },
 
   voice: {
@@ -277,6 +289,45 @@ export const fr = {
     title: 'Regarde ta carte',
     hint: 'Touche la carte pour la retourner. Retiens le nom, puis cache-la.',
     done: 'C’est bon, je suis prêt',
+    // §9: the thinking time, and drawing another name before the start.
+    thinking: 'Réfléchis au chemin…',
+    thinkingHint: 'Cherche dans le livre par où passer pour arriver à ce nom.',
+    redraw: 'Changer de nom',
+    redrawLeft: (n: number) => (n === 1 ? '1 restant' : `${n} restants`),
+    redrawTitle: 'Tu ne trouves pas ce nom dans le livre ?',
+    redrawBody: 'Tu recevras un autre nom. Celui-ci ne reviendra pas dans cette partie.',
+    redrawConfirm: 'Oui, changer de nom',
+    redrawCancel: 'Non, je garde ce nom',
+    redrawNone: 'Tu as utilisé tous tes changements de nom.',
+    redrawDone: 'Nouveau nom : regarde bien ta carte.',
+  },
+
+  /** The countdown, in the header and in the preparation views. */
+  timer: {
+    label: 'Temps restant',
+    thinking: 'Temps pour réfléchir',
+    playing: 'Temps pour trouver',
+    /** Read aloud by screen readers, so it is words and not a clock face. */
+    a11y: (seconds: number) =>
+      seconds >= 60
+        ? `Il reste ${Math.floor(seconds / 60)} minute${Math.floor(seconds / 60) > 1 ? 's' : ''} ${seconds % 60} secondes`
+        : `Il reste ${seconds} seconde${seconds > 1 ? 's' : ''}`,
+    warning: 'Plus que 30 secondes',
+    lastCall: 'Plus que 10 secondes',
+    up: 'Temps écoulé',
+    /** "2 min", "40 s", "1 min 12 s" — the way the durations are written everywhere. */
+    duration: (seconds: number) => {
+      const whole = Math.max(0, Math.round(seconds));
+      const minutes = Math.floor(whole / 60);
+      const rest = whole % 60;
+      if (minutes === 0) return `${rest} s`;
+      if (rest === 0) return `${minutes} min`;
+      return `${minutes} min ${rest} s`;
+    },
+    clock: (seconds: number) => {
+      const whole = Math.max(0, Math.ceil(seconds));
+      return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+    },
   },
 
   tireur: {
@@ -353,7 +404,14 @@ export const fr = {
 
   result: {
     title: 'Trouvé !',
-    abandoned: 'Partie abandonnée',
+    abandoned: 'Partie arrêtée',
+    timeUp: 'Temps écoulé',
+    timeUpHint: 'Personne n’a trouvé à temps. Voici le nom, et le chemin du livre pour y arriver.',
+    // §9: the end screen teaches the book's path, whatever the outcome.
+    solutionIntro: (name: string) => `Le chemin du livre pour trouver ${name}`,
+    solutionHint: 'Voici comment le livre mène à ce nom, question par question.',
+    /** "Trouvé en 1 min 12 s sur 2 min" — only for a timed game that was won. */
+    foundIn: (taken: string, limit: string) => `Trouvé en ${taken} sur ${limit}`,
     pathIntro: 'Voici le chemin que vous avez parcouru.',
     replay: 'Rejouer',
     home: 'Accueil',
@@ -403,6 +461,10 @@ export const fr = {
     TIREUR_NOT_READY: 'Le Tireur regarde encore sa carte. Attends un instant.',
     WAITING_FOR_PLAYER: 'L’autre joueur n’est pas encore arrivé.',
     GAME_NOT_OVER: 'Termine d’abord cette partie.',
+    // Timed games and the name change (GRAPH_SPECIFICATION §9).
+    TIME_UP: 'Le temps est écoulé.',
+    GAME_STARTED: 'La partie a commencé : le nom ne peut plus changer.',
+    NO_REDRAW_LEFT: 'Tu as déjà changé de nom le nombre de fois permis.',
     // Client-side codes.
     CONFIG_MISSING: 'L’application n’est pas configurée : il manque l’adresse du serveur.',
     PERMISSION_DENIED: 'Le serveur a refusé l’accès. Reconnecte-toi.',

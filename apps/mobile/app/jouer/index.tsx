@@ -5,6 +5,7 @@ import type { GameMode, Role } from '@dsa/core';
 
 import {
   AppText,
+  CheckCard,
   ChoiceCard,
   ErrorBanner,
   OfflineBadge,
@@ -18,7 +19,7 @@ import { fr } from '@/i18n/fr';
 import { cleanPlayerName, loadPlayerName, MAX_PLAYER_NAME, savePlayerName } from '@/rooms/player-name';
 import { GRAPH_SLUG, OFFLINE_ENABLED, getGameService, isPlayable } from '@/services';
 import { DsaError, toDsaError } from '@/services/errors';
-import type { InputMode } from '@/services/types';
+import { FALLBACK_TIMER_DEFAULTS, type InputMode, type TimerDefaults } from '@/services/types';
 import { useTheme } from '@/theme';
 
 /** The modes this screen offers alone; a room (`?ami=1`) offers the two roles instead. */
@@ -38,12 +39,17 @@ function modeParam(value: unknown): GameMode {
 }
 
 /**
- * "Préparer la partie", before every game: who plays, and how answers are given.
- * The input mode is stored in `game_sessions.settings.input_mode`. With Voix the
- * players speak and the phone listens; the buttons stay on screen either way.
+ * "Préparer la partie", before every game: who plays, how answers are given, and
+ * whether the chronometer runs. Both choices are stored in
+ * `game_sessions.settings`. With Voix the players speak and the phone listens;
+ * the buttons stay on screen either way.
+ *
+ * The chronometer is off by default (GAME_RULES, "Time limits"), and its line
+ * quotes the durations the admin has actually set, so it never promises a time
+ * the game will not give.
  *
  * With `?ami=1` it prepares a room (HUMAN_VS_HUMAN): the creator picks their role
- * and their name, and chooses the input mode for both players.
+ * and their name, and chooses the input mode and the chronometer for both players.
  */
 export default function PreparerScreen() {
   const theme = useTheme();
@@ -65,8 +71,25 @@ export default function PreparerScreen() {
     };
   }, [forRoom]);
   const [inputMode, setInputMode] = useState<InputMode>('BUTTONS');
+  const [timed, setTimed] = useState(false);
+  const [timerDefaults, setTimerDefaults] = useState<TimerDefaults>(FALLBACK_TIMER_DEFAULTS);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<DsaError | null>(null);
+
+  // The real durations, so the checkbox says what the players will actually get.
+  useEffect(() => {
+    if (!isPlayable()) return;
+    let cancelled = false;
+    void getGameService()
+      .getTimerDefaults()
+      .then((defaults) => {
+        if (!cancelled) setTimerDefaults(defaults);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const start = async () => {
     if (starting) return;
@@ -83,9 +106,9 @@ export default function PreparerScreen() {
               mode: 'HUMAN_VS_HUMAN',
               role,
               displayName: displayName || undefined,
-              settings: { input_mode: inputMode },
+              settings: { input_mode: inputMode, timed },
             }
-          : { graphSlug: GRAPH_SLUG, mode, settings: { input_mode: inputMode } },
+          : { graphSlug: GRAPH_SLUG, mode, settings: { input_mode: inputMode, timed } },
       );
       router.replace(`/partie/${sessionId}`);
     } catch (caught) {
@@ -199,6 +222,29 @@ export default function PreparerScreen() {
             selected={inputMode === 'BUTTONS'}
             disabled={starting}
             onPress={() => setInputMode('BUTTONS')}
+          />
+        </View>
+
+        <View style={{ gap: theme.space.sm }}>
+          <AppText variant="lead" weight="semibold" tone="soft">
+            {fr.setup.timerTitle}
+          </AppText>
+          {forRoom ? (
+            <AppText variant="small" tone="faint">
+              {fr.setup.timerChosenByCreator}
+            </AppText>
+          ) : null}
+          <CheckCard
+            testID="setup-timer"
+            title={fr.setup.timer}
+            hint={
+              timed
+                ? fr.setup.timerHint(fr.timer.duration(timerDefaults.think_seconds), fr.timer.duration(timerDefaults.play_seconds))
+                : fr.setup.timerOff
+            }
+            checked={timed}
+            disabled={starting}
+            onPress={() => setTimed((on) => !on)}
           />
         </View>
       </View>

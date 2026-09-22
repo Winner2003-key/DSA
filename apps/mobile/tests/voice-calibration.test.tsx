@@ -144,7 +144,8 @@ it('is offered once to a Tireur playing with Voix, and "Plus tard" is remembered
   resetVoiceSettingsForTests();
   const other = await service.createSession({ graphSlug: 'mini', mode: 'AI_DECOUVREUR' });
   const buttons = await renderWithProviders(<Table sessionId={other.sessionId} service={service} />);
-  await waitFor(() => expect(buttons.getByTestId('tireur-waiting')).toBeTruthy());
+  // §9: an AI_DECOUVREUR game now opens on the preparation phase too.
+  await waitFor(() => expect(buttons.getByTestId('tireur-ready')).toBeTruthy());
   expect(buttons.queryByTestId('calibration-offer')).toBeNull();
   expect(buttons.queryByTestId('voice-button')).toBeNull();
 });

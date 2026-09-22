@@ -83,6 +83,9 @@ it('does not repeat the hand-over for a LOCAL game that already started', async 
   const service = new OfflineGameService({ persist: false, secretNodeKey: CAIN });
   setGameService(service);
   const { sessionId } = await service.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
+  // §9: the preparation phase is the server's now, so a game "already started"
+  // is one whose Tireur has said they are ready.
+  await service.tireurReady(sessionId);
   await service.ask(sessionId);
   await service.answer(sessionId, 'OUI');
 

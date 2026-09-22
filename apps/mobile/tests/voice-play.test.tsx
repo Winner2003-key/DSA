@@ -8,6 +8,11 @@ import { TranscribeError } from '@dsa/voice';
 
 import { fakeMic, recordingOf } from './fake-recorder';
 import { CAIN, closeVoiceHarness, DAVID, EST_CE, resetVoiceHarness, said, speak, spoken, start, transcribe } from './voice-harness';
+import { makeSettings, makeState, renderWithProviders } from './helpers';
+import { TireurVoice } from '@/views/voice-play';
+import type { GameState } from '@/services/types';
+import type { Countdown } from '@/state/use-countdown';
+import type { UseGame } from '@/state/use-game';
 import { setTalkMode } from '@/speech/voice-settings';
 
 jest.mock('@/speech/recorder', () => require('./fake-recorder'));
@@ -204,5 +209,94 @@ describe('fallbacks: the game continues with the buttons', () => {
       fireEvent.press(screen.getByTestId('voice-button'));
     });
     expect(fakeMic.starts).toBe(0);
+  });
+});
+
+describe('the chronometer and the microphone (§9)', () => {
+  /** A `UseGame` good enough for `TireurVoice`, with the answer pad waiting. */
+  function tireurGame(over: Partial<GameState>, countdown: Countdown): UseGame {
+    const state = makeState({
+      mode: 'AI_DECOUVREUR',
+      awaiting: 'ANSWER',
+      timed: true,
+      settings: makeSettings({ input_mode: 'VOICE', timed: true, think_seconds: 40, play_seconds: 120 }),
+      ...over,
+    });
+    return {
+      state,
+      loading: false,
+      busy: false,
+      error: null,
+      clearError: () => undefined,
+      myRoles: ['TIREUR'],
+      isLocal: false,
+      activeRole: 'TIREUR',
+      aiThinking: false,
+      outgoing: null,
+      refusedGuess: null,
+      exchanges: [],
+      phase: state.status === 'PLAYING' ? 'PLAYING' : 'ENDED',
+      confirmTireurReady: () => undefined,
+      redrawSecret: async () => undefined,
+      canRedraw: false,
+      countdown,
+      clockPhase: 'PLAYING',
+      otherRedrew: false,
+      isRoom: false,
+      realtimeStatus: null,
+      connectionLost: false,
+      refresh: async () => undefined,
+      ask: async () => undefined,
+      answer: async () => undefined,
+      guess: async () => undefined,
+      confirmGuess: async () => undefined,
+      goBack: async () => undefined,
+      rewind: async () => undefined,
+      abandon: async () => undefined,
+    };
+  }
+
+  const RUNNING: Countdown = { running: true, msLeft: 30_000, secondsLeft: 30, fraction: 0.25, level: 'WARNING' };
+  const UP: Countdown = { running: true, msLeft: 0, secondsLeft: 0, fraction: 0, level: 'UP' };
+
+  it('drops a recording that was still running when the countdown reached zero', async () => {
+    const screen = await renderWithProviders(<TireurVoice game={tireurGame({}, RUNNING)} />);
+
+    fakeMic.next = recordingOf(600);
+    said('oui');
+    await waitFor(() => expect(screen.getByTestId('voice-button-idle')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('voice-button'));
+    });
+    await waitFor(() => expect(screen.getByTestId('voice-button-listening')).toBeTruthy());
+
+    // Zero. The mic closes at once, without waiting for the server to confirm.
+    await act(async () => {
+      screen.rerender(<TireurVoice game={tireurGame({}, UP)} />);
+    });
+    await waitFor(() => expect(screen.queryByTestId('voice-button-listening')).toBeNull());
+    expect(fakeMic.cancels).toBe(1);
+    expect(fakeMic.stops).toBe(0);
+    // Nothing was sent to be transcribed: a word said after the limit must not count.
+    expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  it('drops it just the same when TIME_UP arrives from the server', async () => {
+    const screen = await renderWithProviders(<TireurVoice game={tireurGame({}, RUNNING)} />);
+
+    fakeMic.next = recordingOf(600);
+    said('oui');
+    await waitFor(() => expect(screen.getByTestId('voice-button-idle')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('voice-button'));
+    });
+    await waitFor(() => expect(screen.getByTestId('voice-button-listening')).toBeTruthy());
+
+    await act(async () => {
+      screen.rerender(<TireurVoice game={tireurGame({ status: 'TIME_UP', awaiting: 'NONE' }, RUNNING)} />);
+    });
+    await waitFor(() => expect(screen.queryByTestId('voice-button-listening')).toBeNull());
+    expect(fakeMic.cancels).toBe(1);
+    expect(transcribe).not.toHaveBeenCalled();
   });
 });

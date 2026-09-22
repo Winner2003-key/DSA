@@ -45,6 +45,19 @@ The phone and the computer must be on the same network. If they aren't, use `npx
 - **Server:** needs `05_rooms.sql` (or the current `00`) on the Supabase project. Realtime pushes changes (`postgres_changes` on the game tables); while the channel is down the app polls every 5 s and shows "Connexion perdue… reconnexion".
 - **Scanning in Expo Go:** `expo-camera` is part of Expo Go, so the in-app scanner works there and in browsers with a camera. A phone's own camera app can also scan the lobby QR code; it opens the link it carries (see `EXPO_PUBLIC_DSA_WEB_URL`).
 
+## The chronometer ("Jouer avec le chronomètre")
+
+- **Optional, and off by default.** The checkbox is in Préparer la partie, for a solo or LOCAL game and for the room creator (who chooses for both phones; the lobby shows it read-only). Its line quotes the real durations, read from the server with `dsa_timer_defaults`.
+- **Two clocks.** The Tireur gets **40 s** to work out the book's path to the card ("Je suis prêt" ends it early), then both players get **2 min** to find the name. Nothing extends the game time: rewinds, going back and wrong name calls all spend the same seconds. If the name isn't found, the game ends `TIME_UP` and both players lose.
+- **The server owns the time.** Every state carries `server_now` and the deadlines, and the countdown is computed against those — never against the phone's clock. A phone that reconnects or comes back from the background shows the right seconds at once. The countdown is a ring: in the header during play, larger during the thinking time, changing colour at 30 s and at 10 s with a short haptic (reduced motion respected).
+- **Server:** needs `06_timer.sql` (or the current `00`). The admin sets the three values under **Réglages**; they apply to new games only.
+- **Changing the name:** while looking at the card, a Tireur who cannot find that name in the book may draw another one — **twice by default, and only before the questions start**. A name already drawn never comes back, and the Découvreur is only told that the name changed.
+- **The preparation phase now exists in every mode with a human Tireur** (LOCAL and AI Découvreur too, not just rooms), timed or not. Nothing listens on the microphone during it.
+
+## The end of every game
+
+The result screen shows the game card first — "Trouvé !", "Temps écoulé" or "Partie arrêtée", the name, the statistics and, for a timed game that was won, "Trouvé en 1 min 12 s sur 2 min" — and then **the book's own path to that name** in the animated `PathGraph`: every question in book order with the right answers, down to the card. It is not the players' path, which stays behind "Voir le chemin" during play.
+
 ## Voice ("Façon de jouer : Voix")
 
 - **Choose it** in Préparer la partie (solo, LOCAL, or the room creator for both phones). The buttons stay on screen; voice is an extra way to play.
@@ -98,14 +111,16 @@ app/                      routes only: _layout, index (Accueil), voix (Réglages
                           rejoindre/ and rejoindre/[code] (join by code, link or QR), partie/[sessionId] (lobby + game), resultat/[sessionId] (+ Rejouer)
 src/services/             GameService interface, SupabaseGameService (RPCs + Realtime subscribe), OfflineGameService (@dsa/core),
                           realtime-sync.ts (debounce, fallback polling)
-src/state/                useGame (fetch, realtime sync, AI turns, the TIREUR_READY phase, exchanges, connection), useSecret, useNames
+src/state/                useGame (fetch, realtime sync, AI turns, the preparation phase, the clock, name changes, exchanges, connection),
+                          use-countdown (the server-clock countdown), useSecret, useNames
 src/rooms/                room codes and join links, the room:<code> channel (presence, broadcast), the room state machine,
                           rematch, the remembered player name, share
 src/graph/path-layout.ts  pure layout of the revealed path, like the book's mind maps (unit-tested)
 src/views/                GameTable (hand-over), DecouvreurView (conversation), TireurView, TireurReadyView,
                           RoomTable (lobby, banners), LobbyView, DecouvreurWaitingView, JoinView,
                           voice-play (DecouvreurVoice, TireurVoice), calibration-panel (panel, sheet, offer)
-src/components/           GameHeader, ExchangePair, AnswerStamp, SecretCard (flip), PathGraph (SVG, gestures), …
+src/components/           GameHeader, ExchangePair, AnswerStamp, SecretCard (flip), PathGraph (SVG, gestures),
+                          CountdownRing, CheckCard, …
 src/speech/               tts.ts (expo-speech / speechSynthesis), use-speech (mute, held back while listening),
                           recorder.native.ts / recorder.web.ts (one Recorder interface), transcriber.ts (Edge Function client),
                           use-voice-capture (hold / free talk), use-voice-turn (transcribe, fallbacks), interpret.ts (pure),
@@ -114,7 +129,8 @@ src/i18n/fr.ts            every string the player sees, including one line per D
 src/theme/                palette (dark and light, book answer colours), Zilla Slab type scale, spacing and touch sizes
 tests/                    offline scenarios, error mapping, secret never shown, path layout, conversation pairing, homonyms, LOCAL Tireur first,
                           room codes, realtime sync, room state machine, rematch, rooms flow, useGame realtime,
-                          voice (interpret, game flows with a fake mic, calibration, rooms + "Est-ce" snapshot)
+                          voice (interpret, game flows with a fake mic, calibration, rooms + "Est-ce" snapshot),
+                          timer (fake clock), redraw ("Changer de nom"), result + the book's path
 ```
 
 The UI contains no game rules. It renders the state JSON from `dsa_get_state` and calls the service.

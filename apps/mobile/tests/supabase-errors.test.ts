@@ -130,15 +130,77 @@ describe('SupabaseGameService call shapes', () => {
         p_mode: 'LOCAL',
         p_role: null,
         p_display_name: null,
-        p_settings: { input_mode: 'BUTTONS' },
+        // Only the two keys a client may choose (§9); the server fills the rest.
+        p_settings: { input_mode: 'BUTTONS', timed: false },
       },
     });
   });
 
-  it('sends the chosen input mode in p_settings', async () => {
+  it('sends the chosen input mode and chronometer in p_settings, and nothing else', async () => {
     const { service, calls } = succeeding([{ session_id: 'abc', room_code: 'DSA-1234' }]);
     await service.createSession({ graphSlug: 'mini', mode: 'AI_TIREUR', settings: { input_mode: 'VOICE' } });
-    expect((calls[0]?.args as { p_settings: unknown }).p_settings).toEqual({ input_mode: 'VOICE' });
+    expect((calls[0]?.args as { p_settings: unknown }).p_settings).toEqual({ input_mode: 'VOICE', timed: false });
+
+    const timed = succeeding([{ session_id: 'abc', room_code: 'DSA-1234' }]);
+    await timed.service.createSession({ graphSlug: 'mini', mode: 'LOCAL', settings: { timed: true } });
+    expect((timed.calls[0]?.args as { p_settings: unknown }).p_settings).toEqual({ input_mode: 'BUTTONS', timed: true });
+  });
+
+  it('reads the clock and the name changes out of the state', async () => {
+    const { service } = succeeding({
+      status: 'PLAYING',
+      mode: 'LOCAL',
+      awaiting: 'QUESTION',
+      settings: { input_mode: 'BUTTONS', timed: true, think_seconds: 40, play_seconds: 120, max_redraws: 2 },
+      tireur_ready: false,
+      timed: true,
+      phase: 'THINKING',
+      think_ends_at: '2026-09-17T12:00:40.000Z',
+      play_ends_at: null,
+      server_now: '2026-09-17T12:00:00.000Z',
+      redraws_used: 1,
+      redraws_left: 1,
+    });
+    const state = await service.getState('s1');
+    expect(state.timed).toBe(true);
+    expect(state.phase).toBe('THINKING');
+    expect(state.think_ends_at).toBe('2026-09-17T12:00:40.000Z');
+    expect(state.play_ends_at).toBeNull();
+    expect(state.server_now).toBe('2026-09-17T12:00:00.000Z');
+    expect(state.redraws_used).toBe(1);
+    expect(state.redraws_left).toBe(1);
+    expect(state.settings).toEqual({
+      input_mode: 'BUTTONS',
+      timed: true,
+      think_seconds: 40,
+      play_seconds: 120,
+      max_redraws: 2,
+    });
+  });
+
+  it('calls the §9 RPCs by their names', async () => {
+    const redraw = succeeding({ status: 'PLAYING', mode: 'LOCAL', awaiting: 'QUESTION' });
+    await redraw.service.redrawSecret('s1');
+    expect(redraw.calls[0]).toEqual({ fn: 'dsa_redraw_secret', args: { p_session_id: 's1' } });
+
+    const check = succeeding({ status: 'TIME_UP', mode: 'LOCAL', awaiting: 'NONE' });
+    await check.service.checkTime('s1');
+    expect(check.calls[0]).toEqual({ fn: 'dsa_check_time', args: { p_session_id: 's1' } });
+
+    const book = succeeding({ status: 'TIME_UP', path: [], secret: { node_id: 's', name: 'CAÏN', description: null, has_homonyms: false } });
+    await expect(book.service.getSolutionPath('s1')).resolves.toEqual({
+      status: 'TIME_UP',
+      path: [],
+      secret: { node_id: 's', name: 'CAÏN', description: null, has_homonyms: false },
+    });
+    expect(book.calls[0]).toEqual({ fn: 'dsa_get_solution_path', args: { p_session_id: 's1' } });
+
+    const defaults = succeeding({ think_seconds: 90, play_seconds: 300, max_redraws: 4 });
+    await expect(defaults.service.getTimerDefaults()).resolves.toEqual({
+      think_seconds: 90,
+      play_seconds: 300,
+      max_redraws: 4,
+    });
   });
 
   it('reads has_homonyms, stats and the new path fields', async () => {
@@ -155,12 +217,20 @@ describe('SupabaseGameService call shapes', () => {
       status: 'DISCOVERED',
       winner: 'DECOUVREUR',
       path: [entry],
-      stats: { questions: 5, non: 0, backs: 0, rewinds: 0 },
+      stats: { questions: 5, non: 0, backs: 0, rewinds: 0, timed: true, play_seconds: 120, found_in_seconds: 72 },
       secret: { node_id: 's', name: 'JACQUES', description: "Fils d'Alphée · LES EVANGILES", has_homonyms: true },
     });
     const reveal = await service.getRevealedPath('s1');
     expect(reveal.path).toEqual([entry]);
-    expect(reveal.stats).toEqual({ questions: 5, non: 0, backs: 0, rewinds: 0 });
+    expect(reveal.stats).toEqual({
+      questions: 5,
+      non: 0,
+      backs: 0,
+      rewinds: 0,
+      timed: true,
+      play_seconds: 120,
+      found_in_seconds: 72,
+    });
     expect(reveal.secret?.has_homonyms).toBe(true);
 
     const secretRow = succeeding([{ node_id: 's', name: 'CAÏN', description: 'x', has_homonyms: false }]);
@@ -187,8 +257,12 @@ describe('SupabaseGameService call shapes', () => {
     expect(calls[0]).toEqual({ fn: 'dsa_answer', args: { p_session_id: 's1', p_answer_label: 'OUIOUIOUI' } });
   });
 
-  it('normalises a state that omits the optional fields', async () => {
+  it('normalises a state from a server that predates the timer (06_timer.sql)', async () => {
     const { service } = succeeding({ status: 'PLAYING', mode: 'AI_TIREUR', awaiting: 'QUESTION' });
+    const state = await service.getState('s1');
+    // Such a server never sends server_now, so the device clock stands in; the
+    // rest reads as an untimed game, which is exactly what it is.
+    expect(Date.parse(state.server_now)).not.toBeNaN();
     await expect(service.getState('s1')).resolves.toEqual({
       status: 'PLAYING',
       mode: 'AI_TIREUR',
@@ -198,9 +272,16 @@ describe('SupabaseGameService call shapes', () => {
       pending_guess: null,
       path: [],
       players: [],
-      settings: { input_mode: 'BUTTONS' },
+      settings: { input_mode: 'BUTTONS', timed: false, think_seconds: null, play_seconds: null, max_redraws: 0 },
       tireur_ready: true,
       room_code: null,
+      timed: false,
+      phase: 'PLAYING',
+      think_ends_at: null,
+      play_ends_at: null,
+      server_now: expect.any(String),
+      redraws_used: 0,
+      redraws_left: 0,
     });
   });
 });

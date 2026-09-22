@@ -23,7 +23,7 @@ import { acceptRematch, declineRematch, parseRematchOffer, proposeRematch, roleO
 import { useRoom } from '@/rooms/use-room';
 import { getGameService } from '@/services';
 import { toDsaError, type DsaError } from '@/services/errors';
-import { cardDescription, type GameState, type RevealedPath } from '@/services/types';
+import { cardDescription, type GameState, type RevealedPath, type SolutionPath } from '@/services/types';
 import { useSpeech } from '@/speech/use-speech';
 import { useTheme } from '@/theme';
 
@@ -35,6 +35,7 @@ export default function ResultatScreen() {
   const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
 
   const [reveal, setReveal] = useState<RevealedPath | null>(null);
+  const [solution, setSolution] = useState<SolutionPath | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   const [error, setError] = useState<DsaError | null>(null);
   const [replayOpen, setReplayOpen] = useState(false);
@@ -45,11 +46,18 @@ export default function ResultatScreen() {
     if (!sessionId) return;
     let cancelled = false;
     const service = getGameService();
-    Promise.all([service.getRevealedPath(sessionId), service.getState(sessionId)])
-      .then(([path, current]) => {
+    Promise.all([
+      service.getRevealedPath(sessionId),
+      service.getState(sessionId),
+      // The book's path is the point of this screen, but a server that predates
+      // 06_timer.sql has no such RPC: the game card still shows without it.
+      service.getSolutionPath(sessionId).catch(() => null),
+    ])
+      .then(([path, current, book]) => {
         if (cancelled) return;
         setReveal(path);
         setState(current);
+        setSolution(book);
       })
       .catch((caught: unknown) => {
         if (!cancelled) setError(toDsaError(caught));
@@ -66,9 +74,10 @@ export default function ResultatScreen() {
     if (discovered && secret) speak(fr.spoken.discovered(speakableName(secret.name)));
   }, [discovered, secret, speak]);
 
+  // The book's path always ends on the name, whatever happened in the game.
   const graphName = useMemo(
-    () => (secret && discovered ? { name: secret.name, description: cardDescription(secret) } : null),
-    [discovered, secret],
+    () => (secret ? { name: secret.name, description: cardDescription(secret) } : null),
+    [secret],
   );
 
   // A room stays joined here, so "Rejouer" can reach the other phone.
@@ -211,10 +220,19 @@ export default function ResultatScreen() {
       {reveal ? (
         <View style={{ flex: 1, gap: theme.space.sm, paddingBottom: theme.space.sm }}>
           <ResultHeader reveal={reveal} />
-          <AppText variant="small" tone="soft">
-            {fr.result.pathIntro}
-          </AppText>
-          <PathGraph path={reveal.path} name={graphName} animate testID="result-graph" />
+          {/* Then the book's own way to that name — not the players' detours.
+              Whatever the outcome, this is what the end screen teaches (§9). */}
+          {solution && secret ? (
+            <>
+              <AppText variant="lead" weight="semibold" testID="solution-title">
+                {fr.result.solutionIntro(secret.name)}
+              </AppText>
+              <AppText variant="small" tone="soft">
+                {fr.result.solutionHint}
+              </AppText>
+              <PathGraph path={solution.path} name={graphName} animate testID="result-graph" />
+            </>
+          ) : null}
         </View>
       ) : null}
 

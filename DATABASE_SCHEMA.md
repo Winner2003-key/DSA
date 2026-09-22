@@ -2,7 +2,7 @@
 
 The Supabase (PostgreSQL) side of the project. It implements `GRAPH_SPECIFICATION.md` §2 (rules) and §3 (database).
 
-- Source: `supabase/migrations/0001…0008` (0006 = game UX iteration, GRAPH_SPECIFICATION §8; 0007 = voice rate limit, see `VOICE.md`; 0008 = rooms on two devices, brief S6).
+- Source: `supabase/migrations/0001…0009` (0006 = game UX iteration, GRAPH_SPECIFICATION §8; 0007 = voice rate limit, see `VOICE.md`; 0008 = rooms on two devices, brief S6; 0009 = the optional timer, the name change and the book's path, GRAPH_SPECIFICATION §9, brief S9).
 - What the owner runs: `supabase/sql-editor/` (see its `README.md`).
 - Tests: `supabase/sql-editor/90_tests.sql`.
 
@@ -116,7 +116,7 @@ Indexes: `graph_id`, `from_node_id`, `to_node_id`, `(from_node_id, order_index)`
 | id | uuid PK | |
 | graph_id | uuid → graphs | cascade |
 | mode | text | `HUMAN_VS_HUMAN` `AI_TIREUR` `AI_DECOUVREUR` `LOCAL` |
-| status | text | `WAITING` → `PLAYING` → `DISCOVERED` \| `ABANDONED` (`READY` is allowed but unused) |
+| status | text | `WAITING` → `PLAYING` → `DISCOVERED` \| `ABANDONED` \| `TIME_UP` (`READY` is allowed but unused). (0009) `TIME_UP` ends a timed game whose game time ran out: `winner` is null and both players lose. |
 | room_code | text | `DSA-####`; unique among open sessions (`WAITING`/`READY`/`PLAYING`) |
 | awaiting | text | `QUESTION` (Découvreur acts), `ANSWER` (Tireur answers), `GUESS_CONFIRM` (Tireur confirms a name), `NONE` (not playing) |
 | current_node_id | uuid → graph_nodes | derived position; set null on node delete |
@@ -124,9 +124,11 @@ Indexes: `graph_id`, `from_node_id`, `to_node_id`, `(from_node_id, order_index)`
 | pending_prompt_node_id | uuid → graph_nodes | the asked prompt while `awaiting = ANSWER` |
 | pending_guess | text | the called name while `awaiting = GUESS_CONFIRM` |
 | winner | text | `TIREUR` \| `DECOUVREUR` \| null |
-| settings | jsonb, not null, default `{}` | Chosen at creation (`dsa_create_session(p_settings)`), checked to be an object. Stored normalized: `{"input_mode": "VOICE" \| "BUTTONS"}` (default `BUTTONS`). Reserved for the §9 timer values. |
+| settings | jsonb, not null, default `{}` | Chosen at creation (`dsa_create_session(p_settings)`), checked to be an object. A client may send only `input_mode` (`VOICE` \| `BUTTONS`, default `BUTTONS`) and, since 0009, `timed` (boolean, default `false`). Stored normalized, with the server's own copies: `{"input_mode": …, "timed": …, "max_redraws": 2}` plus `"think_seconds"` and `"play_seconds"` when `timed`. Those copies are what make a running game immune to a later change in `app_settings`. |
 | created_by | uuid → auth.users | |
-| tireur_ready_at | timestamptz | (0008) When the Tireur said "Je suis prêt". Set at creation for every mode except HUMAN_VS_HUMAN; a room sets it through `dsa_tireur_ready`. While it is null in a PLAYING room, the Découvreur can neither ask nor call a name (`DSA_TIREUR_NOT_READY`). This is the phase the §9 thinking time will be put on. |
+| tireur_ready_at | timestamptz | (0008, generalized by 0009) When the preparation phase ended — "Je suis prêt", or the thinking deadline in a timed game. **Only `AI_TIREUR` is ready at creation**; LOCAL, AI_DECOUVREUR and HUMAN_VS_HUMAN all start with it null. While it is null in a PLAYING session, nobody can ask, call a name or let the AI Découvreur play (`DSA_TIREUR_NOT_READY`). |
+| think_ends_at | timestamptz | (0009) Timed games: the end of the thinking time, set when the preparation phase starts. Once the phase is over it holds **when the thinking actually ended**. Null in an untimed game. |
+| play_ends_at | timestamptz | (0009) Timed games: the end of the game time, fixed when the thinking ends (`tireur_ready_at + play_seconds`) and **never moved again** — rewinds, going back and wrong name calls all spend the same seconds. Null in an untimed game. |
 | rematch_of | uuid → game_sessions | (0008) The finished room this one was created from by `dsa_rematch`; set null if that session is deleted. |
 | started_at, ended_at, created_at, updated_at | timestamptz | `updated_at` is set by trigger on every transition, so it is the time of the last activity (stale-room cleanup). |
 
@@ -180,7 +182,21 @@ A partial unique index allows at most one live ANSWER per `(session, step_index)
 | game_session_id | PK → game_sessions, cascade |
 | secret_node_id | → graph_nodes, cascade |
 | secret_character_id | → bible_characters, set null |
+| previous_node_ids | uuid[], not null, default `{}`. (0009) Every card drawn earlier in this game, so `dsa_redraw_secret` never draws one twice. Its length is the number of changes used. It is as private as the secret itself: the RLS policy below covers the whole row, and only the count ever reaches a client. |
 | created_at | |
+
+**`app_settings`** (0009): one row, the admin's "Réglages" page.
+
+| Column | Notes |
+|---|---|
+| id | boolean PK, default true, CHECK `id` — so the table can only ever hold this one row |
+| think_seconds | int, default 40, CHECK 10–600. How long the Tireur has to work out the path. |
+| play_seconds | int, default 120, CHECK 30–1800. How long the players then have to find the name. |
+| max_redraws | int, default 2, CHECK 0–5. How many times a Tireur may draw another name before the start; 0 turns the feature off. |
+| updated_at | timestamptz, set by trigger |
+| updated_by | uuid → auth.users, set null |
+
+These are the values a **new** game copies. A game already being played keeps its own (`game_sessions.settings`), so changing them never shortens a running clock.
 
 ---
 
@@ -195,6 +211,7 @@ RLS is enabled on every table. The `anon` role (not signed in) has **no** table 
 | game_sessions, game_players, game_moves | players of that session | nobody (privileges revoked; RPCs only) |
 | game_secrets | the session's **TIREUR** only | nobody |
 | game_messages | players of that session | INSERT by players, with `user_id = auth.uid()`; no update/delete |
+| app_settings (0009) | admins | UPDATE by admins. No INSERT and no DELETE for anyone: the single row is seeded by the migration. RPCs read it as the owner through `dsa_app_settings()`, so players never touch the table. |
 
 Policies call three `SECURITY DEFINER` helpers, so a policy never queries a table protected by another policy, and there is no recursion:
 
@@ -220,7 +237,7 @@ Call them from the client with `supabase.rpc('dsa_ask', { p_session_id })`. Func
 |---|---|---|---|---|
 | `dsa_create_session(p_graph_slug text, p_mode text, p_role text default null, p_display_name text default null, p_settings jsonb default '{}')` | any signed-in user | `table(session_id uuid, room_code text)` | Picks a random playable secret and a free `DSA-####` code (retries on collision). HUMAN_VS_HUMAN: caller takes `p_role`, status `WAITING`. AI_TIREUR: caller is DECOUVREUR; AI_DECOUVREUR: caller is TIREUR (an AI player row is added). LOCAL: caller holds both roles. Non-HvH sessions start `PLAYING` immediately. `p_settings` (0006): a JSON object whose only allowed key is `input_mode` (`VOICE` \| `BUTTONS`, default `BUTTONS`); null is treated as `{}`. The room creator chooses it for both players. | NOT_AUTHENTICATED, INVALID_MODE, INVALID_ROLE, INVALID_SETTINGS, GRAPH_NOT_FOUND, GRAPH_INVALID, NO_PLAYABLE_SECRET, ROOM_CODE_EXHAUSTED |
 | `dsa_join_session(p_room_code text, p_display_name text default null)` | any signed-in user | `table(session_id uuid, role text)` | Takes the free role of an open HUMAN_VS_HUMAN room; the game starts. Accepts `DSA-1234`, `dsa1234` or `1234`. Joining again returns the role already held. | NOT_AUTHENTICATED, ROOM_NOT_FOUND, ROOM_FULL |
-| `dsa_get_my_secret(p_session_id uuid)` | TIREUR | `table(node_id uuid, name text, description text, has_homonyms boolean)` | The card: `name` is the node label (exact name), and `description` is "clue · section". `has_homonyms` (0006): another CHARACTER of the graph, reachable through APPROVED edges, has the same `dsa_normalize(label)` and a **different** `character_id` (ABRAHAM/ABRAM are one person). Clients show the description only when it is true. | NOT_PLAYER, WRONG_ROLE |
+| `dsa_get_my_secret(p_session_id uuid)` | TIREUR | `table(node_id uuid, name text, description text, has_homonyms boolean)` | (0009) Refused with `DSA_WAITING_FOR_PLAYER` while the session is still `WAITING`/`READY`, so a room's Tireur cannot read the card — and start thinking — before the clock starts. The card: `name` is the node label (exact name), and `description` is "clue · section". `has_homonyms` (0006): another CHARACTER of the graph, reachable through APPROVED edges, has the same `dsa_normalize(label)` and a **different** `character_id` (ABRAHAM/ABRAM are one person). Clients show the description only when it is true. | NOT_PLAYER, WRONG_ROLE, WAITING_FOR_PLAYER |
 | `dsa_get_state(p_session_id uuid)` | players | jsonb state (below) | read-only | NOT_PLAYER |
 | `dsa_ask(p_session_id uuid)` | DÉCOUVREUR | jsonb state | Asks the current prompt (`awaiting` → `ANSWER`). In AI_TIREUR mode the correct answer is recorded immediately. | NOT_PLAYER, WRONG_ROLE, GAME_OVER, NOT_AWAITING_QUESTION, NO_PROMPT |
 | `dsa_answer(p_session_id uuid, p_answer_label text)` | TIREUR | jsonb state | The label's class must be allowed by the prompt. Records the step with the book's canonical label and re-derives the position. | NOT_PLAYER, WRONG_ROLE, GAME_OVER, NOT_AWAITING_ANSWER, NO_PROMPT, ANSWER_NOT_ALLOWED |
@@ -232,8 +249,20 @@ Call them from the client with `supabase.rpc('dsa_ask', { p_session_id })`. Func
 | `dsa_abandon(p_session_id uuid)` | player | jsonb state | `ABANDONED` | NOT_PLAYER, GAME_OVER |
 | `dsa_get_revealed_path(p_session_id uuid)` | players | jsonb (below) | Live steps, the game's stats, and the secret after `DISCOVERED`/`ABANDONED`. | NOT_PLAYER |
 | `dsa_list_names(p_graph_slug text)` | any signed-in user | `text[]` | Sorted distinct CHARACTER labels, character names and aliases. No structure. | NOT_AUTHENTICATED, GRAPH_NOT_FOUND |
-| `dsa_tireur_ready(p_session_id uuid)` | TIREUR | jsonb state | (0008) Ends a room's "Tireur first" phase: sets `tireur_ready_at` once and records a `SYSTEM` move `{"event": "TIREUR_READY"}`. Calling it again changes nothing. Only once both players are there (status PLAYING). Other modes are ready from creation, so it is a no-op there. | NOT_PLAYER, WRONG_ROLE, GAME_OVER, WAITING_FOR_PLAYER |
+| `dsa_tireur_ready(p_session_id uuid)` | TIREUR | jsonb state | (0008, generalized by 0009) Ends the **preparation phase**, in every mode with a human Tireur: sets `tireur_ready_at` once and records a `SYSTEM` move `{"event": "TIREUR_READY", "reason": "READY"}`. In a timed game this is also where `play_ends_at` is fixed. Calling it again changes nothing. Needs status PLAYING (`DSA_WAITING_FOR_PLAYER` in a room whose second player has not arrived). AI_TIREUR is ready from creation, so it is a no-op there. | NOT_PLAYER, WRONG_ROLE, GAME_OVER, TIME_UP, WAITING_FOR_PLAYER |
+| `dsa_redraw_secret(p_session_id uuid)` | TIREUR | jsonb state | (0009) "Changer de nom". Draws another playable card, never one already drawn in this session (`game_secrets.previous_node_ids`). **Only during the preparation phase** — before `tireur_ready_at` and before any QUESTION/ANSWER/GUESS move — otherwise `DSA_GAME_STARTED`. After `settings.max_redraws` it raises `DSA_NO_REDRAW_LEFT`. In a timed game it restarts `think_ends_at`. Records a `SYSTEM` move `{"event": "REDRAW"}`, which carries no node and no name. | NOT_PLAYER, WRONG_ROLE, GAME_OVER, TIME_UP, WAITING_FOR_PLAYER, GAME_STARTED, NO_REDRAW_LEFT, NO_PLAYABLE_SECRET |
+| `dsa_check_time(p_session_id uuid)` | players | jsonb state | (0009) Applies the clock now and returns the state. It is how an idle client turns a game whose time has run out into `TIME_UP` — and the only call that **records** the transition, because every other RPC raises `DSA_TIME_UP`, which rolls its own transaction back. Never raises `DSA_TIME_UP` itself. A no-op in an untimed game. | NOT_PLAYER |
+| `dsa_timer_defaults()` | any signed-in user | jsonb `{think_seconds, play_seconds, max_redraws}` | (0009) The current `app_settings`, so "Préparer la partie" can write the real durations under the chronometer checkbox. These are the rules of the game, not a secret; only admins may write them. | NOT_AUTHENTICATED |
+| `dsa_get_solution_path(p_session_id uuid)` | players | jsonb (below) | (0009) The book's own path from START to the secret. **Only once the session is `DISCOVERED`, `TIME_UP` or `ABANDONED`**; before that it would hand the Découvreur the answer. | NOT_PLAYER, GAME_NOT_OVER |
 | `dsa_rematch(p_session_id uuid, p_swap_roles boolean default false)` | a human player of that finished HUMAN_VS_HUMAN session | `table(session_id uuid, room_code text, role text)` | (0008) "Rejouer". First call: a new WAITING room on the same graph with the same settings and the caller's display name, `rematch_of` = the old session; the caller keeps their role, or takes the other one with `p_swap_roles`. Later calls (the other player accepting, or both pressing "Rejouer" at once): join that open rematch and take the free role (`p_swap_roles` is ignored); the game starts. The old session row is locked, so two calls can't create two rooms. Only players of the old session can reach the new room this way. | NOT_PLAYER, WRONG_MODE, GAME_NOT_OVER, ROOM_FULL, GRAPH_NOT_FOUND, NO_PLAYABLE_SECRET, ROOM_CODE_EXHAUSTED |
+
+**0009 changes to existing RPCs:**
+- **Every mutating RPC checks the deadline first.** `dsa_ask`, `dsa_answer`, `dsa_guess`, `dsa_confirm_guess`, `dsa_go_back`, `dsa_rewind`, `dsa_ai_decouvreur_step`, `dsa_abandon`, `dsa_tireur_ready` and `dsa_redraw_secret` all run `dsa_tick` on the locked row and then `dsa_assert_time`, before `DSA_GAME_OVER` and before the role and state checks. A move that arrives after the limit therefore never lands.
+  - **A raise rolls its own transaction back**, so the refused call leaves the session untouched — it does not write `TIME_UP`. `dsa_check_time` is what records the transition, and the app calls it when its countdown reaches zero or when it sees `DSA_TIME_UP`. The other device learns of it over Realtime like any other change.
+- `dsa_ask`, `dsa_guess` and `dsa_ai_decouvreur_step` raise `DSA_TIREUR_NOT_READY` in **every** mode but AI_TIREUR until `dsa_tireur_ready` (0008 only did it for HUMAN_VS_HUMAN rooms).
+- `dsa_create_session` accepts `timed` in `p_settings`, and copies `think_seconds`/`play_seconds` (when timed) and `max_redraws` (always) from `app_settings`.
+- `dsa_rematch` also accepts a `TIME_UP` session as finished, and carries over the creator's two choices (`input_mode`, `timed`). The durations are copied afresh, because the rematch is a new game.
+- `dsa_get_revealed_path` treats `TIME_UP` as an end (the name is revealed), and its `stats` gain `timed`, `play_seconds` and `found_in_seconds`.
 
 **0008 changes to existing RPCs:**
 - `dsa_create_session` and `dsa_join_session` first run `dsa_cleanup_stale_sessions()` (below), so a room that went idle is closed and its code is free again. A join refused with `DSA_ROOM_NOT_FOUND` rolls back that cleanup with the rest of the call; the next successful create/join (or the cron job) closes the room for good.
@@ -266,9 +295,16 @@ All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
     { "role": "TIREUR", "display_name": "Awa", "is_ai": false, "is_me": false },
     { "role": "DECOUVREUR", "display_name": "Bill", "is_ai": false, "is_me": true }
   ],
-  "settings": { "input_mode": "BUTTONS" },
+  "settings": { "input_mode": "BUTTONS", "timed": true, "max_redraws": 2, "think_seconds": 40, "play_seconds": 120 },
   "tireur_ready": true,
-  "room_code": "DSA-1234"
+  "room_code": "DSA-1234",
+  "timed": true,
+  "phase": "PLAYING",
+  "think_ends_at": "2026-09-17T12:00:12+00:00",
+  "play_ends_at": "2026-09-17T12:02:12+00:00",
+  "server_now": "2026-09-17T12:00:48+00:00",
+  "redraws_used": 1,
+  "redraws_left": 1
 }
 ```
 
@@ -283,6 +319,12 @@ All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
 - `settings` (0006): the session settings, so the second player of a room reads the creator's choices.
 - `tireur_ready` (0008): `false` only while a room's Tireur is still looking at the card. Clients show the Tireur the card and "Je suis prêt", and the Découvreur "Le Tireur découvre sa carte…". It says nothing about the card.
 - `room_code` (0008): the room's `DSA-####` code (players can already read it from `game_sessions`). The lobby shows it, and the room's Realtime channel is `room:<room_code>`.
+- **0009, the clock and the name changes:**
+  - `timed`: this game is played with the chronometer.
+  - `phase`: `THINKING` while the Tireur still has the card, `PLAYING` from the first question. It mirrors `tireur_ready` and is what the app branches on.
+  - `think_ends_at` / `play_ends_at`: the deadlines, or null in an untimed game. `play_ends_at` appears only once the thinking has ended, and never moves afterwards.
+  - **`server_now`**: the server's own clock at the moment it answered. **Clients must compute their countdown from this**, never from the device clock: a phone whose clock is wrong, or that has just come back from the background, still shows the right seconds. It is sent for untimed games too.
+  - `redraws_used` / `redraws_left`: how many times the Tireur has drawn another name, and how many are left. **Never which names** — those stay in `game_secrets`, which only the Tireur can read.
 
 ### `dsa_get_revealed_path` JSON
 
@@ -292,13 +334,33 @@ All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
   "winner": "DECOUVREUR",
   "path": [ { "step_index": 0, "node_id": "…", "text": "ANCIEN", "answer_label": "OUI",
               "prompt_kind": "SPINE", "node_type": "QUESTION", "target_text": "HOMME" } ],
-  "stats": { "questions": 7, "non": 1, "backs": 0, "rewinds": 0 },
+  "stats": { "questions": 7, "non": 1, "backs": 0, "rewinds": 0,
+             "timed": true, "play_seconds": 120, "found_in_seconds": 72 },
   "secret": { "node_id": "…", "name": "CAÏN", "description": "Le meurtrier · LIE A ADAM", "has_homonyms": false }
 }
 ```
 
-- `secret` is `null` until the game ends.
+- `secret` is `null` until the game ends — `DISCOVERED`, `ABANDONED` or, since 0009, `TIME_UP`.
 - `stats` (0006) counts **every** move of the session, undone ones included, like `GameEngine.stats()` in `packages/core`: `questions` = QUESTION moves, `non` = ANSWER moves of class `NON` (not the repeated code), `backs` = BACK moves, `rewinds` = REWIND moves.
+- `stats` (0009) also carries:
+  - `timed`: the game was played with the chronometer;
+  - `play_seconds`: the limit the players had, or null when untimed;
+  - `found_in_seconds`: from the start of the game phase (`tireur_ready_at`) to the discovery (`ended_at`), rounded to the second; null unless the status is `DISCOVERED`. The result screen writes "Trouvé en 1 min 12 s sur 2 min" from these two.
+
+### `dsa_get_solution_path` JSON (0009)
+
+```json
+{
+  "status": "TIME_UP",
+  "path": [ { "step_index": 0, "node_id": "…", "text": "ANCIEN", "answer_label": "OUI",
+              "prompt_kind": "SPINE", "node_type": "QUESTION", "target_text": "HOMME" } ],
+  "secret": { "node_id": "…", "name": "CAÏN", "description": "Le meurtrier · LIE A ADAM", "has_homonyms": false }
+}
+```
+
+The book's own way to the name: every spine question with its correct code, then inside each section its children in book order, answered `NON` until the one answered `OUI`, down to the card. It is **not** the players' path — no detour, no back-step, no refused name.
+
+`path[]` entries have exactly the shape of `dsa_get_state().path[]`, so the app renders them with the same `PathGraph`. The mirror in `packages/core` is `solutionPath(ix, secretNodeId)`, and `90_tests.sql` block 17 checks, for every playable card of `mini`, that replaying this path in a real game lands on that card.
 
 ### Internal functions (not callable by clients)
 
@@ -312,6 +374,7 @@ All codes are prefixed with `DSA_` in the actual message, e.g. `DSA_ROOM_FULL`.
 - **Plumbing:** `dsa_state_json`, `dsa_path_json`, `dsa_require_player`, …
 - **0006:** `dsa_has_homonyms(node_id)`, `dsa_game_stats(session_id)`, `dsa_normalize_settings(jsonb)`.
 - **0008:** `dsa_new_session(...)` (the body of session creation, shared by `dsa_create_session` and `dsa_rematch`), `dsa_assert_tireur_ready(session)`, and `dsa_cleanup_stale_sessions(p_idle interval default '6 hours')`.
+- **0009:** `dsa_app_settings()` (the single row, with the spec's defaults if it were missing), `dsa_end_thinking(session, at, reason)`, `dsa_tick(session)` (applies the deadlines and returns the row as it now is), `dsa_assert_time(session)` and `dsa_solution_path(graph_id, secret_node_id)`. `dsa_start_play` and `dsa_normalize_settings` are rewritten by 0009; `dsa_normalize_settings` becomes `stable` rather than `immutable`, because it now reads `app_settings`.
 
 ### Stale rooms (0008)
 
@@ -387,6 +450,7 @@ In the left sidebar open **SQL Editor** → **New query**. For each file below, 
 1. `supabase/sql-editor/00_all_migrations.sql`: expect "Success. No rows returned".
    - **A project that already ran an older `00`** (before the game UX update) runs `supabase/sql-editor/03_game_ux.sql` instead, then `90`. Running the new `00` again also works.
    - **A project that already ran `00` before the rooms update** runs `supabase/sql-editor/05_rooms.sql` (after `03` if it needed that), then `90`. `05` stops with a clear message if `03` is missing.
+   - **A project that already ran `00` before the timed-games update** runs `supabase/sql-editor/06_timer.sql` (after `05`), then `90`. `06` stops with a clear message if `05` is missing.
 2. `supabase/sql-editor/01_seed_mini_graph.sql`: expect one row `mini_nodes 30 · mini_edges 29 · mini_characters 12`.
 3. `supabase/sql-editor/90_tests.sql`: expect one row **`ALL DSA TESTS PASSED`**. It takes a few seconds and changes nothing (it rolls back).
 
@@ -428,12 +492,19 @@ In Vercel: Project → **Settings → Environment Variables**. Add the two publi
 |---|---|
 | `DSA TEST SETUP: run 00_all_migrations.sql first` / `run 01_seed_mini_graph.sql first` | Run the files in order: 00, 01, then 90. |
 | `DSA TEST SETUP: this project predates the game UX update; run 03_game_ux.sql …` | The project was set up with an older `00`. Run `03_game_ux.sql`, then `90` again. |
-| App: `DSA_INVALID_SETTINGS` | `p_settings` has an unknown key, or `input_mode` is not `VOICE`/`BUTTONS`. |
+| App: `DSA_INVALID_SETTINGS` | `p_settings` has a key other than `input_mode` and `timed`, `input_mode` is not `VOICE`/`BUTTONS`, or `timed` is not a boolean. The durations are the server's to fill in; a client never sends them. |
 | `DSA TEST SETUP: this project predates the rooms update; run 05_rooms.sql …` | Run `05_rooms.sql`, then `90` again. |
 | `DSA SETUP: this project predates the game UX update; run 03_game_ux.sql first, then this file again` (05) | Run `03_game_ux.sql`, then `05_rooms.sql` again. |
 | App: `DSA_TIREUR_NOT_READY` | The Découvreur acted before the Tireur said "Je suis prêt" (a stale screen). The app waits for the push; it resolves itself. |
 | App: `DSA_WAITING_FOR_PLAYER` | `dsa_tireur_ready` was called before the second player joined. |
-| App: `DSA_GAME_NOT_OVER` | `dsa_rematch` on a game that is still being played. |
+| App: `DSA_GAME_NOT_OVER` | `dsa_rematch`, or `dsa_get_solution_path`, on a game that is still being played. The book's path is only taught once the game is over. |
+| `DSA TEST SETUP: this project predates the timed-games update; run 06_timer.sql …` | Run `06_timer.sql`, then `90` again. |
+| `DSA SETUP: this project predates the rooms update; run 05_rooms.sql first, then this file again` (06) | Run `05_rooms.sql`, then `06_timer.sql` again. |
+| App: `DSA_TIME_UP` | The game time ran out. The app calls `dsa_check_time` and moves to the result screen, which shows the name and the book's path. |
+| App: `DSA_GAME_STARTED` | `dsa_redraw_secret` after the Tireur said "Je suis prêt" or after the first question. The name can no longer change; only `dsa_abandon` is left. |
+| App: `DSA_NO_REDRAW_LEFT` | The Tireur has used all `settings.max_redraws` name changes (admin → Réglages). |
+| The clock seems to keep running after the time is up | Nothing was moving, so nobody told the server. Any player's `dsa_check_time` records it; the app does that by itself when its countdown reaches zero. |
+| An admin changed the durations and a game in progress did not follow | That is the rule: `think_seconds` and `play_seconds` are copied into `game_sessions.settings` when the game is created. The next game takes the new values. |
 | App: "Could not find the function public.dsa_tireur_ready" | `05_rooms.sql` has not been run on this project. |
 | Rooms: presence never shows the other player | Realtime is blocked (network or firewall). The game still works: it polls every 5 s and shows "Connexion perdue… reconnexion". |
 | `DSA TEST FAILED [<scenario>]: …` | A rule or policy doesn't behave as the spec says. Nothing was saved (rollback). Copy the full message into the report for the lead. |

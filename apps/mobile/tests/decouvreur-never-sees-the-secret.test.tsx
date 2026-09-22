@@ -75,6 +75,19 @@ class FakeService implements GameService {
   async getState(): Promise<GameState> {
     return leakyState();
   }
+  async redrawSecret(): Promise<GameState> {
+    return leakyState();
+  }
+  async checkTime(): Promise<GameState> {
+    return leakyState();
+  }
+  async getTimerDefaults() {
+    return { think_seconds: 40, play_seconds: 120, max_redraws: 2 };
+  }
+  /** Even here the book's path never names the card before the end. */
+  async getSolutionPath() {
+    return { status: 'DISCOVERED' as const, path: [], secret: null };
+  }
   async getMySecret(sessionId: string): Promise<Secret> {
     this.secretCalls.push(sessionId);
     return { node_id: SECRET_NODE_ID, name: SECRET_NAME, description: SECRET_DESCRIPTION, has_homonyms: true };
