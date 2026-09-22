@@ -94,12 +94,12 @@ Directions to design in a dedicated session (after S7c live voice):
 
 ---
 
-## Planned order (briefs are written; run one app session at a time)
-1. **S10** — `S10-app-experience.md`: B2 icons, B4 Réglages, B3 device voices, B6 admin pronunciation
-2. **S11** — `S11-rules-and-practice.md`: B1 the QUESTION rule, B7 practising a part of the book
-3. **S9** — `S9-timed-games.md`: the optional timer (ready since 2026-09-17)
-4. **S7c** — live voice between phones
-5. **S12** — `S12-hands-free.md`: B5 hands-free voice-first play
-6. **S8** — security and release readiness
+## Planned order (owner, 2026-09-22: the UI comes first)
+1. **S10** — `S10-ui-first.md`: UI pass, icons (B2), Réglages (B4), voice choice and speed (B3). **Next, as soon as S11 finishes.**
+2. **S11** — `S11-rules-and-practice.md`: B1 the QUESTION rule, B7 practising a part of the book (running).
+3. **S7c** — live voice between phones.
+4. **S12** — `S12-hands-free.md`: B5 hands-free voice-first play.
+5. **S13** — `S13-admin-pronunciation.md`: B6, deferred by the owner.
+6. **S8** — security and release readiness.
 
-Any order works as long as only one session touching `apps/mobile` runs at a time. Each brief tells the session to check `git status` first.
+Only one session at a time may touch `apps/mobile`. Each brief tells the session to check `git status` first.
