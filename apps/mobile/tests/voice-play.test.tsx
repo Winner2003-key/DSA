@@ -4,16 +4,29 @@
  */
 import * as Speech from 'expo-speech';
 import { act, fireEvent, waitFor } from '@testing-library/react-native';
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
+import { State } from 'react-native-gesture-handler';
 import { TranscribeError } from '@dsa/voice';
 
 import { fakeMic, recordingOf } from './fake-recorder';
-import { CAIN, closeVoiceHarness, DAVID, EST_CE, resetVoiceHarness, said, speak, spoken, start, transcribe } from './voice-harness';
+import {
+  activateMic,
+  CAIN,
+  closeVoiceHarness,
+  DAVID,
+  EST_CE,
+  resetVoiceHarness,
+  said,
+  speak,
+  spoken,
+  start,
+  transcribe,
+} from './voice-harness';
 import { makeSettings, makeState, renderWithProviders } from './helpers';
 import { TireurVoice } from '@/views/voice-play';
 import type { GameState } from '@/services/types';
 import type { Countdown } from '@/state/use-countdown';
 import type { UseGame } from '@/state/use-game';
-import { setTalkMode } from '@/speech/voice-settings';
 
 jest.mock('@/speech/recorder', () => require('./fake-recorder'));
 
@@ -36,8 +49,10 @@ describe('Découvreur by voice (AI Tireur)', () => {
     // TTS was stopped before recording, and the hint carried the question.
     expect(Speech.stop).toHaveBeenCalled();
     expect(transcribe.mock.calls[0]?.[1]).toMatchObject({ hint: expect.stringContaining('Ancien ?'), durationMs: expect.any(Number) });
-    // The buttons are still there.
-    expect(screen.getByTestId('ask-button')).toBeTruthy();
+    // Voix means voice only: nothing to touch but the microphone.
+    expect(screen.queryByTestId('ask-button')).toBeNull();
+    expect(screen.queryByTestId('propose-name')).toBeNull();
+    expect(screen.queryByTestId('go-back')).toBeNull();
   });
 
   it('noise gives "Je n’ai pas bien compris. Peux-tu répéter ?", shown and spoken', async () => {
@@ -71,21 +86,21 @@ describe('Découvreur by voice (AI Tireur)', () => {
     await waitFor(() => expect(screen.getByTestId('prompt-text')).toHaveTextContent(/^HOMME\s\?$/));
   });
 
-  it('holds to talk by default: press, speak, release', async () => {
-    setTalkMode('HOLD');
+  it('holds the microphone to talk, like a voice note: press, speak, release', async () => {
     const { service, screen } = await start('AI_TIREUR', CAIN);
     const ask = jest.spyOn(service, 'ask');
-    await waitFor(() => expect(screen.getByTestId('voice-button-label')).toHaveTextContent('Maintiens le bouton et parle'));
+    await waitFor(() => expect(screen.getByTestId('voice-button-label')).toHaveTextContent('Maintiens le micro et parle'));
 
     fakeMic.next = recordingOf(500);
     said('Ancien');
     await act(async () => {
-      fireEvent(screen.getByTestId('voice-button'), 'pressIn');
+      fireGestureHandler(getByGestureTestId('voice-button'), [{ state: State.BEGAN }, { state: State.ACTIVE }]);
     });
     await waitFor(() => expect(screen.getByTestId('voice-level')).toBeTruthy());
+    expect(screen.getByTestId('voice-button-slide')).toBeTruthy();
     // The recording keeps a short tail (400 ms) after release, then goes to the server.
     await act(async () => {
-      fireEvent(screen.getByTestId('voice-button'), 'pressOut');
+      fireGestureHandler(getByGestureTestId('voice-button'), [{ state: State.ACTIVE }, { state: State.END }]);
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
     expect(fakeMic.stops).toBe(0);
@@ -95,10 +110,58 @@ describe('Découvreur by voice (AI Tireur)', () => {
     await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
     expect(fakeMic.stops).toBe(1);
   });
+
+  it('slides up to lock: the recording goes on after release, one touch sends it', async () => {
+    const { service, screen } = await start('AI_TIREUR', CAIN);
+    const ask = jest.spyOn(service, 'ask');
+    await waitFor(() => expect(screen.getByTestId('voice-button-idle')).toBeTruthy());
+
+    fakeMic.next = recordingOf(2500);
+    said('Ancien');
+    await act(async () => {
+      fireGestureHandler(getByGestureTestId('voice-button'), [
+        { state: State.BEGAN, translationY: 0 },
+        { state: State.ACTIVE, translationY: -30 },
+        { state: State.ACTIVE, translationY: -80 },
+        { state: State.END, translationY: -80 },
+      ]);
+    });
+    await waitFor(() => expect(screen.getByTestId('voice-button-locked')).toBeTruthy());
+    expect(screen.getByTestId('voice-button-label')).toHaveTextContent(/Micro bloqué/);
+    // Released long ago, and still listening.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    expect(screen.getByTestId('voice-button-listening')).toBeTruthy();
+    expect(fakeMic.stops).toBe(0);
+
+    // One touch on the microphone sends it.
+    await act(async () => {
+      fireGestureHandler(getByGestureTestId('voice-button'), [{ state: State.BEGAN }, { state: State.END }]);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+    expect(fakeMic.stops).toBe(1);
+    expect(screen.queryByTestId('voice-button-locked')).toBeNull();
+  });
+
+  it('"revenir" without a question is asked again out loud, with no list to touch', async () => {
+    const { service, screen } = await start('AI_TIREUR', CAIN);
+    await waitFor(() => expect(screen.getByTestId('prompt-text')).toBeTruthy());
+    await speak(screen, 500, 'Ancien');
+    await waitFor(() => expect(screen.getByTestId('prompt-text')).toHaveTextContent(/^HOMME/));
+    const goBack = jest.spyOn(service, 'goBack');
+
+    await speak(screen, 500, 'Revenir');
+    await waitFor(() => expect(screen.getByTestId('voice-notice')).toHaveTextContent(/Revenir où/));
+    expect(spoken()).toContain('Revenir où ? Dis « revenir à » suivi de la question.');
+    expect(goBack).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('step-picker')).toBeNull();
+  });
 });
 
 describe('Tireur by voice (AI Découvreur)', () => {
-  /** Answers ANCIEN and HOMME with the buttons, up to PENTATEUQUE (NON / NONONONON). */
+  /** Answers ANCIEN and HOMME out loud, up to PENTATEUQUE (NON / NONONONON). */
   async function atPentateuque() {
     const game = await start('AI_DECOUVREUR', DAVID);
     const { screen } = game;
@@ -108,9 +171,7 @@ describe('Tireur by voice (AI Découvreur)', () => {
     });
     for (const question of ['ANCIEN', 'HOMME']) {
       await waitFor(() => expect(screen.getByTestId('incoming-question-text')).toHaveTextContent(new RegExp(`^${question}`)));
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('answer-OUI'));
-      });
+      await speak(screen, 300, 'Oui');
     }
     await waitFor(() => expect(screen.getByTestId('incoming-question-text')).toHaveTextContent(/^PENTATEUQUE/));
     return game;
@@ -125,8 +186,10 @@ describe('Tireur by voice (AI Découvreur)', () => {
     await speak(screen, 1300, 'Non.');
     await waitFor(() => expect(answer).toHaveBeenCalledWith(sessionId, 'NONONONON'));
     await waitFor(() => expect(screen.getByTestId('incoming-question-text')).toHaveTextContent(/^LIVRE DE SAMUEL/));
-    // The answer buttons never left.
-    expect(screen.getByTestId('answer-pad')).toBeTruthy();
+    // Voix means voice only: no answer pad, and "QUESTION" is said, not touched.
+    expect(screen.queryByTestId('answer-pad')).toBeNull();
+    expect(screen.queryByTestId('rewind-1')).toBeNull();
+    expect(screen.getByTestId('rewind-hint')).toHaveTextContent(/Dis « question »/);
   });
 
   it('a short "non" answers NON', async () => {
@@ -136,18 +199,17 @@ describe('Tireur by voice (AI Découvreur)', () => {
     await waitFor(() => expect(answer).toHaveBeenCalledWith(sessionId, 'NON'));
   });
 
-  it('a borderline sound shows the two confirm buttons, one tap answers', async () => {
+  it('a borderline sound is asked again out loud, and the next one answers', async () => {
     const { service, sessionId, screen } = await atPentateuque();
     const answer = jest.spyOn(service, 'answer');
     await speak(screen, 650, 'Non');
-    await waitFor(() => expect(screen.getByTestId('voice-confirm')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('voice-notice')).toHaveTextContent(/Redis-le/));
+    expect(spoken()).toContain('Je n’ai pas su faire la différence. Redis-le : OUI, ou un long OUIIII.');
     expect(answer).not.toHaveBeenCalled();
-    expect(screen.getByTestId('voice-confirm-NON')).toBeTruthy();
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('voice-confirm-NON_REPETE'));
-    });
+    expect(screen.queryByTestId('voice-confirm')).toBeNull();
+
+    await speak(screen, 1300, 'Non');
     await waitFor(() => expect(answer).toHaveBeenCalledWith(sessionId, 'NONONONON'));
-    await waitFor(() => expect(screen.queryByTestId('voice-confirm')).toBeNull());
   });
 
   it('"question question" rewinds two questions', async () => {
@@ -159,27 +221,22 @@ describe('Tireur by voice (AI Découvreur)', () => {
   });
 });
 
-describe('fallbacks: the game continues with the buttons', () => {
-  it('permission denied: a French banner, no mic, buttons work, no crash', async () => {
-    const { service, sessionId, screen } = await start('AI_TIREUR', CAIN);
+describe('fallbacks: a voice game has no buttons, so it says how to get them', () => {
+  it('permission denied: a French banner that says to start again with Boutons, no crash', async () => {
+    const { screen } = await start('AI_TIREUR', CAIN);
     await waitFor(() => expect(screen.getByTestId('prompt-text')).toBeTruthy());
     fakeMic.error = 'PERMISSION_DENIED';
     await act(async () => {
-      fireEvent.press(screen.getByTestId('voice-button'));
+      activateMic(screen);
     });
     await waitFor(() => expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/Le micro est refusé/));
+    expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/recommence la partie en choisissant Boutons/);
     expect(screen.queryByTestId('voice-button')).toBeNull();
+    expect(screen.queryByTestId('ask-button')).toBeNull();
     expect(transcribe).not.toHaveBeenCalled();
-
-    const ask = jest.spyOn(service, 'ask');
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('ask-button'));
-    });
-    await waitFor(() => expect(ask).toHaveBeenCalledWith(sessionId));
-    await waitFor(() => expect(screen.getByTestId('prompt-text')).toHaveTextContent(/^HOMME/));
   });
 
-  it('rate limited or unreachable: the server’s French message, the mic stays for a retry', async () => {
+  it('rate limited or unreachable: a French message, the mic stays for a retry', async () => {
     const { screen } = await start('AI_TIREUR', CAIN);
     await waitFor(() => expect(screen.getByTestId('prompt-text')).toBeTruthy());
 
@@ -188,8 +245,9 @@ describe('fallbacks: the game continues with the buttons', () => {
     );
     await speak(screen, 500, null);
     await waitFor(() => expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/Trop de demandes vocales/));
+    // Never "utilise les boutons": there are none in this game.
+    expect(screen.getByTestId('voice-fallback')).not.toHaveTextContent(/utilise les boutons/);
     expect(screen.getByTestId('voice-button')).toBeTruthy();
-    expect(screen.getByTestId('ask-button')).toBeTruthy();
 
     transcribe.mockRejectedValueOnce(new TranscribeError('DSA_VOICE_NETWORK', 0, 'Pas de connexion au serveur vocal.'));
     await speak(screen, 500, null);
@@ -206,7 +264,7 @@ describe('fallbacks: the game continues with the buttons', () => {
     await waitFor(() => expect(screen.getByTestId('voice-button-disabled')).toBeTruthy());
     expect(screen.getByTestId('voice-button-label')).toHaveTextContent('Le micro s’allume à ton tour.');
     await act(async () => {
-      fireEvent.press(screen.getByTestId('voice-button'));
+      activateMic(screen);
     });
     expect(fakeMic.starts).toBe(0);
   });
@@ -267,7 +325,7 @@ describe('the chronometer and the microphone (§9)', () => {
     said('oui');
     await waitFor(() => expect(screen.getByTestId('voice-button-idle')).toBeTruthy());
     await act(async () => {
-      fireEvent.press(screen.getByTestId('voice-button'));
+      activateMic(screen);
     });
     await waitFor(() => expect(screen.getByTestId('voice-button-listening')).toBeTruthy());
 
@@ -289,7 +347,7 @@ describe('the chronometer and the microphone (§9)', () => {
     said('oui');
     await waitFor(() => expect(screen.getByTestId('voice-button-idle')).toBeTruthy());
     await act(async () => {
-      fireEvent.press(screen.getByTestId('voice-button'));
+      activateMic(screen);
     });
     await waitFor(() => expect(screen.getByTestId('voice-button-listening')).toBeTruthy());
 

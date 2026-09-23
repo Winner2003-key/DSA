@@ -1,18 +1,13 @@
 /**
- * Voice settings kept on this device (AsyncStorage): how the player talks, and the
- * Tireur's calibration (GRAPH_SPECIFICATION §1). A tiny shared store, so the game
+ * Voice settings kept on this device (AsyncStorage): the Tireur's calibration (GRAPH_SPECIFICATION §1). A tiny shared store, so the game
  * screen and "Réglages de la voix" always agree.
  */
 import { useEffect, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseCalibration, type Calibration } from '@dsa/voice';
 
-/** HOLD: "Maintenir pour parler" (the default: most reliable in a noisy room). FREE: "Parler librement". */
-export type TalkMode = 'HOLD' | 'FREE';
-
 export interface VoiceSettings {
   loaded: boolean;
-  talkMode: TalkMode;
   /** null until this device has been calibrated. */
   calibration: Calibration | null;
   /** The calibration was offered once already ("Plus tard" or done). */
@@ -20,12 +15,11 @@ export interface VoiceSettings {
 }
 
 export const VOICE_KEYS = {
-  talkMode: 'dsa.voice.talkMode',
   calibration: 'dsa.voice.calibration',
   offered: 'dsa.voice.calibrationOffered',
 } as const;
 
-const initial: VoiceSettings = { loaded: false, talkMode: 'HOLD', calibration: null, calibrationOffered: false };
+const initial: VoiceSettings = { loaded: false, calibration: null, calibrationOffered: false };
 
 let current: VoiceSettings = initial;
 let loading: Promise<void> | null = null;
@@ -41,8 +35,7 @@ export function loadVoiceSettings(): Promise<void> {
   if (!loading) {
     loading = (async () => {
       try {
-        const [mode, calibration, offered] = await Promise.all([
-          AsyncStorage.getItem(VOICE_KEYS.talkMode),
+        const [calibration, offered] = await Promise.all([
           AsyncStorage.getItem(VOICE_KEYS.calibration),
           AsyncStorage.getItem(VOICE_KEYS.offered),
         ]);
@@ -52,7 +45,7 @@ export function loadVoiceSettings(): Promise<void> {
         } catch {
           parsed = null;
         }
-        set({ loaded: true, talkMode: mode === 'FREE' ? 'FREE' : 'HOLD', calibration: parsed, calibrationOffered: offered === '1' });
+        set({ loaded: true, calibration: parsed, calibrationOffered: offered === '1' });
       } catch {
         set({ loaded: true });
       } finally {
@@ -65,11 +58,6 @@ export function loadVoiceSettings(): Promise<void> {
 
 export function getVoiceSettings(): VoiceSettings {
   return current;
-}
-
-export function setTalkMode(talkMode: TalkMode): void {
-  set({ talkMode });
-  AsyncStorage.setItem(VOICE_KEYS.talkMode, talkMode).catch(() => undefined);
 }
 
 export function saveCalibration(calibration: Calibration): void {

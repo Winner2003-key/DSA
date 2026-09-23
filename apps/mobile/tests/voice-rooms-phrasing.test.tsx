@@ -123,7 +123,7 @@ it('says nothing with "Est-ce" in a voice game, on screen or aloud (snapshot)', 
   await speak(tireur.screen, 300, 'Oui');
   await waitFor(() => expect(tireur.screen.getByTestId('incoming-question-text')).toHaveTextContent(/^PENTATEUQUE/));
   await speak(tireur.screen, 650, 'Non');
-  await waitFor(() => expect(tireur.screen.getByTestId('voice-confirm')).toBeTruthy());
+  await waitFor(() => expect(tireur.screen.getByTestId('voice-notice')).toHaveTextContent(/Redis-le/));
   screens.push(...texts(tireur.screen.toJSON()));
 
   const utterances = spoken();

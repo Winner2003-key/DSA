@@ -28,4 +28,4 @@ export { Sheet } from './sheet';
 export { StepPicker } from './step-picker';
 export { TextField } from './text-field';
 export { ResultHeader } from './result-header';
-export { TalkModeChips, VoiceButton } from './voice-button';
+export { VoiceButton } from './voice-button';

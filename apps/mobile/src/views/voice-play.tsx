@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { View } from 'react-native';
-import { answerClass } from '@dsa/core';
 import { buildTranscribeHint } from '@dsa/voice';
 
-import { AnswerSlab, AppText, NoticeBanner, SecondaryButton, TalkModeChips, VoiceButton } from '@/components';
+import { AppText, NoticeBanner, SecondaryButton, VoiceButton } from '@/components';
 import { fr } from '@/i18n/fr';
-import { guessConfirmation, interpretDecouvreur, interpretTireur, type CanonicalLabel } from '@/speech/interpret';
+import { guessConfirmation, interpretDecouvreur, interpretTireur } from '@/speech/interpret';
 import { useSpeech } from '@/speech/use-speech';
 import { useVoiceTurn, type VoiceTurn } from '@/speech/use-voice-turn';
 import { useVoiceSettings } from '@/speech/voice-settings';
@@ -19,15 +18,16 @@ export function isVoiceGame(game: UseGame): boolean {
 }
 
 /**
- * The microphone block of a game screen: the fallback banner (the buttons keep
- * working), the talk button with its live state, what was heard, and the talk mode.
+ * The microphone block of a game screen: the fallback banner, the microphone
+ * with its live state, and what was heard. A voice game has no answer buttons:
+ * when the voice cannot work, the banner says to start again with Boutons.
  */
 function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; enabled: boolean; instruction: string; testID: string }) {
   const theme = useTheme();
   return (
     <View testID={testID} style={{ gap: theme.space.xs }}>
       {turn.fallback ? (
-        <NoticeBanner testID="voice-fallback" tone="warn" title={turn.fallback} hint={fr.voice.useButtons}>
+        <NoticeBanner testID="voice-fallback" tone="warn" title={turn.fallback} hint={fr.voice.restartWithButtons}>
           <SecondaryButton testID="voice-fallback-close" icon={X} label={fr.app.close} onPress={turn.dismissFallback} />
         </NoticeBanner>
       ) : null}
@@ -36,10 +36,11 @@ function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; e
           <VoiceButton
             phase={turn.phase}
             level={turn.level}
-            talkMode={turn.talkMode}
+            locked={turn.locked}
             disabled={!enabled}
             pressIn={turn.pressIn}
             pressOut={turn.pressOut}
+            lock={turn.lock}
             tap={turn.tap}
           />
           {enabled && turn.phase === 'idle' && !turn.heard && !turn.notice ? (
@@ -57,7 +58,6 @@ function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; e
               {turn.notice}
             </AppText>
           ) : null}
-          <TalkModeChips talkMode={turn.talkMode} disabled={turn.phase !== 'idle'} />
         </>
       )}
     </View>
@@ -67,15 +67,15 @@ function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; e
 export interface DecouvreurVoiceProps {
   game: UseGame;
   names: string[];
-  /** "Revenir" without a recognisable question: let the player pick it. */
-  onChooseStep: () => void;
 }
 
 /**
  * The Découvreur speaks: "Ancien ?" asks, "Absalom !" calls a name, "revenir à
- * Pentateuque" goes back. The same `useGame` actions as the buttons.
+ * Pentateuque" goes back. The same `useGame` actions as the buttons of a game
+ * played with Boutons; here there are none, so a "revenir" that names no
+ * question is asked again, out loud.
  */
-export function DecouvreurVoice({ game, names, onChooseStep }: DecouvreurVoiceProps) {
+export function DecouvreurVoice({ game, names }: DecouvreurVoiceProps) {
   const { speak } = useSpeech();
   const { state } = game;
   // The countdown reaching zero closes the microphone at once, without waiting
@@ -109,8 +109,12 @@ export function DecouvreurVoice({ game, names, onChooseStep }: DecouvreurVoicePr
           await now.guess(action.name);
           return;
         case 'BACK':
-          if (action.stepIndex === null) onChooseStep();
-          else await now.goBack(action.stepIndex);
+          if (action.stepIndex !== null) {
+            await now.goBack(action.stepIndex);
+            return;
+          }
+          turn.setNotice(fr.voice.backWhere);
+          speak(fr.voice.backWhere);
           return;
         default:
           turn.setNotice(fr.voice.notUnderstood);
@@ -120,16 +124,21 @@ export function DecouvreurVoice({ game, names, onChooseStep }: DecouvreurVoicePr
   });
 
   if (!state) return null;
-  return <VoicePanel turn={turn} enabled={enabled} instruction={fr.voice.decouvreurHint} testID="decouvreur-voice" />;
+  // What to say now, since there is no button to show it.
+  const instruction = state.dead_end
+    ? fr.voice.decouvreurDeadEnd
+    : state.prompt === null
+      ? fr.voice.decouvreurCharacter
+      : fr.voice.decouvreurHint;
+  return <VoicePanel turn={turn} enabled={enabled} instruction={instruction} testID="decouvreur-voice" />;
 }
 
 /**
  * The Tireur answers out loud. The word comes from the transcript, OUI versus the
- * held OUIIII from the sound; when the sound is borderline, two big buttons ask
- * (a wrong branch is far worse than one extra tap). The answer pad stays visible.
+ * held OUIIII from the sound; when the sound is borderline, the phone asks to say
+ * it again rather than guess (a wrong branch is far worse than one more try).
  */
 export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: boolean }) {
-  const theme = useTheme();
   const { speak } = useSpeech();
   const settings = useVoiceSettings();
   const { state } = game;
@@ -138,10 +147,6 @@ export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: 
   const answering = state?.status === 'PLAYING' && ((state.awaiting === 'ANSWER' && prompt !== null) || pendingGuess !== null);
   // Same as the Découvreur: time up closes the microphone immediately.
   const enabled = Boolean(answering && !game.busy && !paused && game.countdown.level !== 'UP');
-
-  const [confirm, setConfirm] = useState<[CanonicalLabel, CanonicalLabel] | null>(null);
-  const questionKey = `${state?.path.length ?? 0}:${prompt?.node_id ?? ''}:${pendingGuess ?? ''}:${state?.awaiting ?? ''}`;
-  useEffect(() => setConfirm(null), [questionKey]);
 
   const latest = useRef({ game, calibration: settings.calibration });
   latest.current = { game, calibration: settings.calibration };
@@ -175,7 +180,8 @@ export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: 
         return;
       }
       if (decision.kind === 'CONFIRM') {
-        setConfirm(decision.options);
+        turn.setNotice(fr.voice.sayAgain);
+        speak(fr.voice.sayAgain);
         return;
       }
       if (decision.kind === 'REWIND' && decision.count <= current.path.length) {
@@ -189,48 +195,11 @@ export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: 
 
   if (!state) return null;
   return (
-    <View style={{ gap: theme.space.sm }}>
-      {confirm && answering ? (
-        <View
-          testID="voice-confirm"
-          style={{
-            gap: theme.space.sm,
-            padding: theme.space.md,
-            borderRadius: theme.radius.card,
-            borderWidth: 1,
-            borderColor: theme.colors.brass,
-            backgroundColor: theme.colors.surfaceRaised,
-          }}
-        >
-          <AppText variant="title" weight="bold" tight>
-            {fr.voice.confirmTitle}
-          </AppText>
-          <AppText variant="small" tone="soft">
-            {fr.voice.confirmHint}
-          </AppText>
-          {/* Full width, stacked: "NON NON NON" must read in full. */}
-          <View style={{ gap: theme.space.sm }}>
-            {confirm.map((label) => (
-              <AnswerSlab
-                key={label}
-                answerClass={answerClass(label)}
-                disabled={game.busy}
-                testID={`voice-confirm-${answerClass(label)}`}
-                onPress={() => {
-                  setConfirm(null);
-                  void game.answer(label);
-                }}
-              />
-            ))}
-          </View>
-        </View>
-      ) : null}
-      <VoicePanel
-        turn={turn}
-        enabled={enabled}
-        instruction={pendingGuess ? fr.voice.guessHint : fr.voice.tireurHint}
-        testID="tireur-voice"
-      />
-    </View>
+    <VoicePanel
+      turn={turn}
+      enabled={enabled}
+      instruction={pendingGuess ? fr.voice.guessHint : fr.voice.tireurHint}
+      testID="tireur-voice"
+    />
   );
 }

@@ -10,7 +10,7 @@ import { parseCalibration } from '@dsa/voice';
 
 import { setGameService } from '@/services';
 import { OfflineGameService } from '@/services/offline-game-service';
-import { resetVoiceSettingsForTests, setTalkMode, VOICE_KEYS } from '@/speech/voice-settings';
+import { resetVoiceSettingsForTests, VOICE_KEYS } from '@/speech/voice-settings';
 import { clearNameCacheForTests } from '@/state/use-names';
 import { useGame } from '@/state/use-game';
 import { CalibrationPanel } from '@/views/calibration-panel';
@@ -19,6 +19,7 @@ import VoiceSettingsScreen from '../app/voix';
 
 import { envelopeOf, fakeMic, recordingOf, resetFakeMic, SILENCE_DB } from './fake-recorder';
 import { renderWithProviders } from './helpers';
+import { activateMic } from './voice-harness';
 
 jest.mock('@/speech/recorder', () => require('./fake-recorder'));
 jest.mock('expo-router', () => ({ useRouter: () => ({ back: jest.fn(), replace: jest.fn(), canGoBack: () => true }) }));
@@ -29,11 +30,11 @@ async function take(screen: Screen, voiceMs: number | 'silence') {
   fakeMic.next = voiceMs === 'silence' ? { ...recordingOf(0), envelope: envelopeOf([[1500, SILENCE_DB]]), durationMs: 1500 } : recordingOf(voiceMs);
   await waitFor(() => expect(screen.getByTestId('calibration-voice-idle')).toBeTruthy());
   await act(async () => {
-    fireEvent.press(screen.getByTestId('calibration-voice'));
+    activateMic(screen, 'calibration-voice');
   });
   await waitFor(() => expect(screen.getByTestId('calibration-voice-listening')).toBeTruthy());
   await act(async () => {
-    fireEvent.press(screen.getByTestId('calibration-voice'));
+    activateMic(screen, 'calibration-voice');
   });
 }
 
@@ -42,7 +43,6 @@ beforeEach(async () => {
   resetFakeMic();
   resetVoiceSettingsForTests();
   clearNameCacheForTests();
-  setTalkMode('FREE');
 });
 afterEach(() => setGameService(null));
 
@@ -100,7 +100,7 @@ it('shows the microphone refusal instead of crashing', async () => {
   fakeMic.error = 'PERMISSION_DENIED';
   const screen = await renderWithProviders(<CalibrationPanel startImmediately />);
   await act(async () => {
-    fireEvent.press(screen.getByTestId('calibration-voice'));
+    activateMic(screen, 'calibration-voice');
   });
   await waitFor(() => expect(screen.getByTestId('calibration-mic-error')).toHaveTextContent(/Le micro est refusé/));
 });
@@ -112,10 +112,8 @@ it('"Réglages de la voix" shows the stored values and redoes the calibration', 
   );
   const screen = await renderWithProviders(<VoiceSettingsScreen />);
   await waitFor(() => expect(screen.getByTestId('calibration-summary')).toHaveTextContent(/Au-delà de 0,7 s/));
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('talk-mode-hold'));
-  });
-  expect(await AsyncStorage.getItem(VOICE_KEYS.talkMode)).toBe('HOLD');
+  // One way to talk everywhere now (hold, or slide up to lock): nothing to choose.
+  expect(screen.queryByTestId('talk-mode-hold')).toBeNull();
   await act(async () => {
     fireEvent.press(screen.getByTestId('voice-settings-calibrate'));
   });

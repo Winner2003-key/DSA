@@ -9,7 +9,7 @@ import type { TranscribeResult } from '@dsa/voice';
 import { setGameService } from '@/services';
 import { OfflineGameService } from '@/services/offline-game-service';
 import { setTranscriber } from '@/speech/transcriber';
-import { resetVoiceSettingsForTests, setTalkMode } from '@/speech/voice-settings';
+import { resetVoiceSettingsForTests } from '@/speech/voice-settings';
 import { clearNameCacheForTests } from '@/state/use-names';
 import { useGame } from '@/state/use-game';
 import { GameTable } from '@/views/game-table';
@@ -55,19 +55,24 @@ export async function start(mode: GameMode, secretNodeKey: string, options: numb
 
 export type Screen = Awaited<ReturnType<typeof start>>['screen'];
 
-/** "Parler librement": one tap starts, a second tap stops (the fake mic sends no levels). */
+/** The microphone's "activate" (a screen reader's double tap): starts a locked recording, or sends it. */
+export function activateMic(screen: Pick<Screen, 'getByTestId'>, testID = 'voice-button') {
+  fireEvent(screen.getByTestId(testID), 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
+}
+
+/** A locked recording: one activation starts, a second one sends (the fake mic sends no levels). */
 export async function speak(screen: Screen, voiceMs: number, text: string | null) {
   fakeMic.next = recordingOf(voiceMs);
   if (text !== null) said(text);
   await waitFor(() => expect(screen.getByTestId('voice-button-idle')).toBeTruthy());
   await act(async () => {
-    fireEvent.press(screen.getByTestId('voice-button'));
+    activateMic(screen);
   });
   await waitFor(() => expect(screen.getByTestId('voice-button-listening')).toBeTruthy());
   // Stop, transcribe, act on the game: all mocked and quick, but chained over several
   // ticks — keep them inside act() so every state update is accounted for.
   await act(async () => {
-    fireEvent.press(screen.getByTestId('voice-button'));
+    activateMic(screen);
     await new Promise((resolve) => setTimeout(resolve, 60));
   });
 }
@@ -82,7 +87,6 @@ export async function resetVoiceHarness() {
   (Speech.stop as jest.Mock).mockClear();
   transcribe.mockReset();
   setTranscriber({ available: true, transcribe: transcribe as never });
-  setTalkMode('FREE');
 }
 
 export async function closeVoiceHarness() {

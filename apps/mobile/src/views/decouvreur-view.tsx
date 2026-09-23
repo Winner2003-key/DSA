@@ -42,6 +42,9 @@ export interface DecouvreurViewProps {
  * Every answer on screen is drawn from the same exchange as its question, and the
  * next question lives only in its own card, so "SES ENFANTS ? → NON" can't be read.
  * This view renders `prompt`, `path` and the refused calls, and never reads the secret.
+ *
+ * In a game played with Voix there are no buttons and no keyboard: the cards
+ * only show what to say, and the microphone does the rest.
  */
 export function DecouvreurView({ game }: DecouvreurViewProps) {
   const theme = useTheme();
@@ -184,8 +187,12 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
         <AppText variant={fitVariant(asQuestion(prompt.text))} weight="bold" tight testID="prompt-text">
           {asQuestion(prompt.text)}
         </AppText>
-        <PrimaryButton testID="ask-button" label={fr.game.ask} disabled={!canAct} onPress={() => void game.ask()} />
-        {secondary(false)}
+        {voice ? null : (
+          <>
+            <PrimaryButton testID="ask-button" label={fr.game.ask} disabled={!canAct} onPress={() => void game.ask()} />
+            {secondary(false)}
+          </>
+        )}
       </>,
     );
   } else if (myTurn && deadEnd) {
@@ -199,14 +206,18 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
         <AppText variant="body" tone="soft">
           {fr.conversation.deadEndHint}
         </AppText>
-        <PrimaryButton
-          testID="go-back"
-          icon={Undo2}
-          label={fr.game.goBack}
-          disabled={!canGoBack}
-          onPress={() => setStepPickerOpen(true)}
-        />
-        {secondary(true)}
+        {voice ? null : (
+          <>
+            <PrimaryButton
+              testID="go-back"
+              icon={Undo2}
+              label={fr.game.goBack}
+              disabled={!canGoBack}
+              onPress={() => setStepPickerOpen(true)}
+            />
+            {secondary(true)}
+          </>
+        )}
       </>,
     );
   } else if (atCharacter) {
@@ -220,14 +231,18 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
         <AppText variant="body" tone="soft">
           {fr.conversation.characterReachedHint}
         </AppText>
-        <PrimaryButton testID="propose-name" icon={UserPen} label={fr.game.proposeName} disabled={!canAct} onPress={() => setNamePadOpen(true)} />
-        <SecondaryButton
-          testID="go-back"
-          icon={Undo2}
-          label={fr.game.goBack}
-          disabled={!canGoBack}
-          onPress={() => setStepPickerOpen(true)}
-        />
+        {voice ? null : (
+          <>
+            <PrimaryButton testID="propose-name" icon={UserPen} label={fr.game.proposeName} disabled={!canAct} onPress={() => setNamePadOpen(true)} />
+            <SecondaryButton
+              testID="go-back"
+              icon={Undo2}
+              label={fr.game.goBack}
+              disabled={!canGoBack}
+              onPress={() => setStepPickerOpen(true)}
+            />
+          </>
+        )}
       </>,
     );
   }
@@ -253,7 +268,7 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
 
       {turnCard}
 
-      {voice ? <DecouvreurVoice game={game} names={names} onChooseStep={() => setStepPickerOpen(true)} /> : null}
+      {voice ? <DecouvreurVoice game={game} names={names} /> : null}
 
       {state.path.length > 0 ? (
         <LinkButton testID="see-path" icon={Route} label={fr.conversation.seePath} onPress={() => setPathOpen(true)} />

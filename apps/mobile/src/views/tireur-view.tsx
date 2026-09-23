@@ -29,6 +29,9 @@ export interface TireurViewProps {
  * on screen, the answer pad offers only what the book allows at that question, and
  * "QUESTION" (going back after a mistake) sits in its own zone, well away from the
  * answers. Buttons send the canonical book label, never raw text (§7).
+ *
+ * In a game played with Voix the Tireur only speaks: no answer pad, and
+ * "QUESTION" is said rather than touched.
  */
 export function TireurView({ sessionId, game }: TireurViewProps) {
   const theme = useTheme();
@@ -117,7 +120,7 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
       {/* Mounted once for the whole game, so what was heard and a fallback survive between turns. */}
       {voice ? <TireurVoice game={game} paused={calibrating} /> : null}
 
-      {pendingGuess ? (
+      {voice ? null : pendingGuess ? (
         <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
           <AnswerSlab answerClass="OUI" half disabled={busy} testID="confirm-oui" onPress={() => void game.confirmGuess('OUI')} />
           <AnswerSlab answerClass="NON" half disabled={busy} testID="confirm-non" onPress={() => void game.confirmGuess('NON')} />
@@ -162,50 +165,52 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
           <AppText variant="lead" weight="semibold">
             {fr.tireur.mistakeTitle}
           </AppText>
-          <AppText variant="small" tone="soft">
-            {fr.tireur.mistakeHint}
+          <AppText variant="small" tone="soft" testID="rewind-hint">
+            {voice ? fr.voice.mistakeHint : fr.tireur.mistakeHint}
           </AppText>
         </View>
-        <View style={{ flexDirection: 'row', gap: theme.space.xs }}>
-          {([1, 2, 3] as const).map((count) => {
-            // Since 0010 any of ×1/×2/×3 is allowed as soon as one answer exists:
-            // asking for more lists than were opened goes back to the start.
-            const disabled = !canRewind || state.path.length === 0;
-            return (
-              <Pressable
-                key={count}
-                testID={`rewind-${count}`}
-                accessibilityRole="button"
-                accessibilityState={{ disabled }}
-                accessibilityLabel={fr.tireur.rewindLabel(count)}
-                accessibilityHint={fr.tireur.rewindExplain(count)}
-                disabled={disabled}
-                onPress={() => {
-                  warningFeedback();
-                  void game.rewind(count);
-                }}
-                style={({ pressed }) => ({
-                  flex: 1,
-                  minHeight: theme.touch.secondary,
-                  borderRadius: theme.radius.field,
-                  borderWidth: 1,
-                  borderColor: pressed ? theme.colors.danger : theme.colors.line,
-                  backgroundColor: pressed ? theme.colors.surfaceRaised : 'transparent',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: disabled ? 0.4 : 1,
-                })}
-              >
-                <AppText variant="micro" weight="semibold" tone="soft">
-                  QUESTION
-                </AppText>
-                <AppText variant="lead" weight="bold">
-                  ×{count}
-                </AppText>
-              </Pressable>
-            );
-          })}
-        </View>
+        {voice ? null : (
+          <View style={{ flexDirection: 'row', gap: theme.space.xs }}>
+            {([1, 2, 3] as const).map((count) => {
+              // Since 0010 any of ×1/×2/×3 is allowed as soon as one answer exists:
+              // asking for more lists than were opened goes back to the start.
+              const disabled = !canRewind || state.path.length === 0;
+              return (
+                <Pressable
+                  key={count}
+                  testID={`rewind-${count}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled }}
+                  accessibilityLabel={fr.tireur.rewindLabel(count)}
+                  accessibilityHint={fr.tireur.rewindExplain(count)}
+                  disabled={disabled}
+                  onPress={() => {
+                    warningFeedback();
+                    void game.rewind(count);
+                  }}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    minHeight: theme.touch.secondary,
+                    borderRadius: theme.radius.field,
+                    borderWidth: 1,
+                    borderColor: pressed ? theme.colors.danger : theme.colors.line,
+                    backgroundColor: pressed ? theme.colors.surfaceRaised : 'transparent',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: disabled ? 0.4 : 1,
+                  })}
+                >
+                  <AppText variant="micro" weight="semibold" tone="soft">
+                    QUESTION
+                  </AppText>
+                  <AppText variant="lead" weight="bold">
+                    ×{count}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </View>
 
       <PathSheet visible={pathOpen} path={state.path} onClose={() => setPathOpen(false)} />

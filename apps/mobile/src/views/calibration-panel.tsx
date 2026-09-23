@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { analyzeEnvelope, calibrate, type Calibration, type EnvelopeAnalysis } from '@dsa/voice';
 
-import { AppText, LinkButton, NoticeBanner, PrimaryButton, SecondaryButton, Sheet, TalkModeChips, VoiceButton } from '@/components';
+import { AppText, LinkButton, NoticeBanner, PrimaryButton, SecondaryButton, Sheet, VoiceButton } from '@/components';
 import { fr } from '@/i18n/fr';
 import { soundVerdict } from '@/speech/interpret';
 import type { RecorderErrorCode, Recording } from '@/speech/recorder-types';
@@ -57,12 +57,9 @@ export function CalibrationSummary({ calibration }: { calibration: Calibration }
 export function CalibrationPanel({
   onDone,
   startImmediately = false,
-  showTalkMode = true,
 }: {
   onDone?: () => void;
   startImmediately?: boolean;
-  /** The settings screen already shows the talk mode above the panel. */
-  showTalkMode?: boolean;
 }) {
   const theme = useTheme();
   const { speak } = useSpeech();
@@ -117,7 +114,6 @@ export function CalibrationPanel({
 
   const capture = useVoiceCapture({
     enabled: step.kind !== 'INTRO' && micError === null,
-    talkMode: settings.talkMode,
     onRecording,
     onRecorderError: setMicError,
   });
@@ -158,9 +154,10 @@ export function CalibrationPanel({
         testID="calibration-voice"
         phase={capture.phase}
         level={capture.level}
-        talkMode={settings.talkMode}
+        locked={capture.locked}
         pressIn={capture.pressIn}
         pressOut={capture.pressOut}
+        lock={capture.lock}
         tap={capture.tap}
       />
       {notice ? (
@@ -168,7 +165,6 @@ export function CalibrationPanel({
           {notice}
         </AppText>
       ) : null}
-      {showTalkMode ? <TalkModeChips talkMode={settings.talkMode} disabled={capture.phase !== 'idle'} /> : null}
     </>
   );
 

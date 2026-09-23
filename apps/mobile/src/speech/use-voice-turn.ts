@@ -2,7 +2,8 @@
  * One spoken turn in a game: record (useVoiceCapture) → `transcribe` → hand the
  * words to the view, which decides what they mean. Owns the French states the
  * player sees (prêt, écoute, analyse, "J'ai entendu : « … »") and the fallbacks:
- * whatever goes wrong, a banner explains it and the buttons keep working.
+ * whatever goes wrong, a banner explains it (a voice game has no buttons: the
+ * way out is a new game with Boutons).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { TranscribeError } from '@dsa/voice';
@@ -11,7 +12,6 @@ import { fr } from '@/i18n/fr';
 import type { Recording, RecorderErrorCode } from './recorder-types';
 import { getTranscriber } from './transcriber';
 import { useVoiceCapture, type CapturePhase } from './use-voice-capture';
-import { useVoiceSettings, type TalkMode } from './voice-settings';
 
 /** A hold shorter than this is a slip of the finger, not a word: nothing is sent. */
 export const MIN_RECORDING_MS = 250;
@@ -30,17 +30,19 @@ export interface VoiceTurn {
   off: boolean;
   phase: CapturePhase;
   level: number;
-  talkMode: TalkMode;
+  /** Slid up while holding: the recording goes on until the microphone is touched. */
+  locked: boolean;
   /** What was understood, as said ("Ancien"). */
   heard: string | null;
   /** A short line under the button: "Je n'ai pas bien compris…". */
   notice: string | null;
   setNotice: (notice: string | null) => void;
-  /** The fallback banner: voice failed, play with the buttons. */
+  /** The fallback banner: voice failed. */
   fallback: string | null;
   dismissFallback: () => void;
   pressIn: () => void;
   pressOut: () => void;
+  lock: () => void;
   tap: () => void;
 }
 
@@ -49,8 +51,25 @@ export function cleanTranscript(text: string): string {
   return text.trim().replace(/^[\s.,;:!?…«»"]+|[\s.,;:!?…«»"]+$/gu, '');
 }
 
+/**
+ * The server's own French for a failure, except where it says "ou utilise les
+ * boutons": a voice game has none, and the banner says how to get them.
+ */
+function failureMessage(failure: TranscribeError | null): string {
+  if (!failure) return fr.voice.serviceDown;
+  switch (failure.code) {
+    case 'DSA_VOICE_PROVIDER_FAILED':
+      return fr.voice.serviceDown;
+    case 'DSA_VOICE_RATE_LIMIT':
+      return fr.voice.rateLimit;
+    case 'DSA_VOICE_NETWORK':
+      return fr.voice.offline;
+    default:
+      return failure.messageFr;
+  }
+}
+
 export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
-  const settings = useVoiceSettings();
   const [heard, setHeard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [fallback, setFallback] = useState<string | null>(null);
@@ -88,7 +107,7 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
     } catch (caught) {
       const failure = caught instanceof TranscribeError ? caught : null;
       if (failure?.code === 'DSA_VOICE_NOT_CONFIGURED') setOff(true);
-      setFallback(failure ? failure.messageFr : fr.voice.serviceDown);
+      setFallback(failureMessage(failure));
       return;
     }
     setFallback(null);
@@ -99,7 +118,6 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
 
   const capture = useVoiceCapture({
     enabled: options.enabled && !off,
-    talkMode: settings.talkMode,
     onRecording,
     onRecorderError,
   });
@@ -121,7 +139,7 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
     off: off || !capture.supported,
     phase: capture.phase,
     level: capture.level,
-    talkMode: settings.talkMode,
+    locked: capture.locked,
     heard,
     notice,
     setNotice,
@@ -132,6 +150,7 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
     },
     pressIn: capture.pressIn,
     pressOut: capture.pressOut,
+    lock: capture.lock,
     tap: capture.tap,
   };
 }

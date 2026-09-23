@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { AppText, LinkButton, PrimaryButton, Screen, SoundToggle, TalkModeChips, TopBar } from '@/components';
+import { AppText, LinkButton, PrimaryButton, Screen, SoundToggle, TopBar } from '@/components';
 import { fr } from '@/i18n/fr';
 import { clearCalibration, useVoiceSettings } from '@/speech/voice-settings';
 import { useTheme } from '@/theme';
@@ -10,7 +10,7 @@ import { CalibrationPanel, CalibrationSummary } from '@/views/calibration-panel'
 import { Mic } from '@/components';
 
 /**
- * "Réglages de la voix": how to talk (hold or free), and the Tireur's calibration,
+ * "Réglages de la voix": the Tireur's calibration,
  * which can be redone here at any time. Everything stays on this device.
  */
 export default function VoiceSettingsScreen() {
@@ -38,20 +38,10 @@ export default function VoiceSettingsScreen() {
 
         <View style={{ gap: theme.space.sm }}>
           <AppText variant="lead" weight="semibold" tone="soft">
-            {fr.voice.talkModeTitle}
-          </AppText>
-          <TalkModeChips talkMode={settings.talkMode} disabled={calibrating} />
-          <AppText variant="small" tone="faint">
-            {settings.talkMode === 'HOLD' ? fr.voice.holdToTalkHint : fr.voice.freeTalkHint}
-          </AppText>
-        </View>
-
-        <View style={{ gap: theme.space.sm }}>
-          <AppText variant="lead" weight="semibold" tone="soft">
             {fr.voice.calibrationTitle}
           </AppText>
           {calibrating ? (
-            <CalibrationPanel startImmediately showTalkMode={false} onDone={() => setCalibrating(false)} />
+            <CalibrationPanel startImmediately onDone={() => setCalibrating(false)} />
           ) : (
             <>
               {settings.calibration ? (

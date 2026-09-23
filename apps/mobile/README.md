@@ -72,11 +72,11 @@ The result screen shows the game card first — "Trouvé !", "Temps écoulé" or
 
 ## Voice ("Façon de jouer : Voix")
 
-- **Choose it** in Préparer la partie (solo, LOCAL, or the room creator for both phones). The buttons stay on screen; voice is an extra way to play.
-- **Server:** the `transcribe` Edge Function must be deployed (`VOICE.md`). Without it, or without `EXPO_PUBLIC_SUPABASE_URL`, pressing the mic shows a French banner and the game goes on with the buttons.
-- **Talking:** "Maintenir pour parler" (default) or "Parler librement" (tap, stops after 800 ms of silence, 8 s at most); switch on the game screen or in **Réglages de la voix** (`/voix`, linked from Accueil).
-- **Découvreur:** say the question ("Ancien ?"), a name ("Absalom !") or "revenir à Pentateuque". The phone speaks the answer.
-- **Tireur:** the phone speaks the question; say OUI, NON, a held OUIIII / NONNNN, or "question" ×N. A borderline length shows two big buttons.
+- **Choose it** in Préparer la partie (solo, LOCAL, or the room creator for both phones). A voice game is voice only: no answer pad, no name keyboard, no "Poser la question" / "Revenir" / QUESTION ×N buttons. The preparation phase (card, "Je suis prêt", "Changer de nom") is unchanged.
+- **Server:** the `transcribe` Edge Function must be deployed (`VOICE.md`). Without it, or without `EXPO_PUBLIC_SUPABASE_URL`, pressing the mic shows a French banner that says to quit and start again with Boutons.
+- **Talking:** like a voice note. Hold the round microphone and talk, release to send. Slide up while holding to lock it: keep talking hands free, then touch it once to send (25 s at most). A screen reader's double tap starts a locked recording, and a second one sends it.
+- **Découvreur:** say the question ("Ancien ?"), a name ("Absalom !") or "revenir à Pentateuque". The phone speaks the answer. A "revenir" that names no question is asked again out loud.
+- **Tireur:** the phone speaks the question; say OUI, NON, a held OUIIII / NONNNN, or "question" ×N. A borderline length is asked again out loud ("Redis-le").
 - **Calibration:** offered the first time someone is Tireur with Voix, every time on a shared phone ("Calibrer pour ce Tireur"), and in Réglages de la voix. Stored per device (AsyncStorage).
 - **Microphone:** `expo-audio` (in Expo Go) on phones, `getUserMedia` + `MediaRecorder` in browsers (https or localhost only). Text-to-speech is held back while the mic is open.
 

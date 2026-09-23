@@ -1,31 +1,32 @@
 /**
- * The talking gesture, shared by the game and the calibration screen:
+ * The talking gesture, shared by the game and the calibration screen, as in a
+ * messaging app's voice note:
  *
- * - HOLD ("Maintenir pour parler", default): recording runs while the button is
- *   held, plus a short tail after release — the envelope needs some quiet frames
- *   to find the room's noise floor.
- * - FREE ("Parler librement"): one tap starts; it stops by itself after 800 ms of
- *   silence following the voice, or after 8 s. A second tap stops at once.
+ * - hold the microphone: it records while held, plus a short tail after release
+ *   (the envelope needs some quiet frames to find the room's noise floor);
+ * - slide up while holding: the recording is locked, and goes on after the
+ *   finger leaves ("parler librement") until the microphone is touched again,
+ *   or MAX_LOCKED_MS at most.
  *
  * Text-to-speech is stopped and held back while the microphone is open.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { detectEndOfSpeech, type EnvelopeSample } from '@dsa/voice';
+import type { EnvelopeSample } from '@dsa/voice';
 
 import { useRecorder } from './recorder';
 import { RecorderError, type Recorder, type RecorderErrorCode, type Recording } from './recorder-types';
 import { useSpeech } from './use-speech';
-import type { TalkMode } from './voice-settings';
 
 /** Kept recording after the button is released. */
 export const HOLD_TAIL_MS = 400;
+/** A locked recording nobody stops is closed after this long (the server takes 30 s at most). */
+export const MAX_LOCKED_MS = 25_000;
 
 export type CapturePhase = 'idle' | 'starting' | 'listening' | 'processing';
 
 export interface VoiceCaptureOptions {
   /** The microphone may be used now (your turn, voice not turned off). */
   enabled: boolean;
-  talkMode: TalkMode;
   /** Receives each finished recording; the phase stays `processing` until it settles. */
   onRecording: (recording: Recording) => Promise<void> | void;
   /** The recorder refused (permission, no microphone, failure). */
@@ -39,10 +40,17 @@ export interface VoiceCapture {
   phase: CapturePhase;
   /** Live input level, 0…1, while listening. */
   level: number;
-  /** HOLD: the button went down / up. */
+  /** The recording goes on after release: the finger slid up while holding. */
+  locked: boolean;
+  /** The microphone went down / up. */
   pressIn: () => void;
   pressOut: () => void;
-  /** FREE: a tap starts, a second tap stops. */
+  /** Slide up while holding: keep recording after release. */
+  lock: () => void;
+  /**
+   * Stops a locked recording. When idle it starts one already locked: the way in
+   * for a screen reader, which cannot hold and slide.
+   */
   tap: () => void;
   cancel: () => void;
 }
@@ -57,10 +65,13 @@ export function useVoiceCapture(options: VoiceCaptureOptions): VoiceCapture {
   const speech = useSpeech();
   const [phase, setPhase] = useState<CapturePhase>('idle');
   const [level, setLevel] = useState(0);
+  const [locked, setLocked] = useState(false);
 
   const phaseRef = useRef<CapturePhase>('idle');
   const mounted = useRef(true);
   const releasePending = useRef(false);
+  const lockedRef = useRef(false);
+  const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const samples = useRef<EnvelopeSample[]>([]);
   const tailTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef(options);
@@ -70,6 +81,12 @@ export function useVoiceCapture(options: VoiceCaptureOptions): VoiceCapture {
   const move = useCallback((next: CapturePhase) => {
     phaseRef.current = next;
     if (mounted.current) setPhase(next);
+    if (next === 'idle' || next === 'processing') {
+      lockedRef.current = false;
+      if (mounted.current) setLocked(false);
+      if (maxTimer.current) clearTimeout(maxTimer.current);
+      maxTimer.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -112,12 +129,10 @@ export function useVoiceCapture(options: VoiceCaptureOptions): VoiceCapture {
     releasePending.current = false;
     samples.current = [];
     speech.setListening(true);
-    const free = latest.current.talkMode === 'FREE';
     try {
       await recorder.start((sample) => {
         samples.current.push(sample);
         if (mounted.current) setLevel(levelOf(sample.db));
-        if (free && phaseRef.current === 'listening' && detectEndOfSpeech(samples.current).stop) void finish();
       });
     } catch (caught) {
       speech.setListening(false);
@@ -132,13 +147,16 @@ export function useVoiceCapture(options: VoiceCaptureOptions): VoiceCapture {
       return;
     }
     move('listening');
-    if (releasePending.current) {
+    maxTimer.current = setTimeout(() => void finish(), MAX_LOCKED_MS);
+    if (releasePending.current && !lockedRef.current) {
       releasePending.current = false;
       tailTimer.current = setTimeout(() => void finish(), tailMs);
     }
   }, [finish, move, recorder, speech, tailMs]);
 
   const cancel = useCallback(() => {
+    if (maxTimer.current) clearTimeout(maxTimer.current);
+    maxTimer.current = null;
     if (tailTimer.current) clearTimeout(tailTimer.current);
     tailTimer.current = null;
     releasePending.current = false;
@@ -158,6 +176,7 @@ export function useVoiceCapture(options: VoiceCaptureOptions): VoiceCapture {
   // Leaving the screen closes the microphone.
   useEffect(() => () => {
     if (tailTimer.current) clearTimeout(tailTimer.current);
+    if (maxTimer.current) clearTimeout(maxTimer.current);
     if (phaseRef.current === 'listening' || phaseRef.current === 'starting') {
       void recorder.cancel();
       speech.setListening(false);
@@ -170,6 +189,7 @@ export function useVoiceCapture(options: VoiceCaptureOptions): VoiceCapture {
   }, [begin]);
 
   const pressOut = useCallback(() => {
+    if (lockedRef.current) return;
     if (phaseRef.current === 'starting') {
       releasePending.current = true;
       return;
@@ -179,10 +199,22 @@ export function useVoiceCapture(options: VoiceCaptureOptions): VoiceCapture {
     else tailTimer.current = setTimeout(() => void finish(), tailMs);
   }, [finish, tailMs]);
 
+  const lock = useCallback(() => {
+    if (lockedRef.current || (phaseRef.current !== 'starting' && phaseRef.current !== 'listening')) return;
+    lockedRef.current = true;
+    setLocked(true);
+  }, []);
+
   const tap = useCallback(() => {
-    if (phaseRef.current === 'idle') void begin();
-    else if (phaseRef.current === 'listening') void finish();
+    if (phaseRef.current === 'idle') {
+      if (!latest.current.enabled) return;
+      lockedRef.current = true;
+      setLocked(true);
+      void begin();
+    } else if (phaseRef.current === 'listening' && lockedRef.current) {
+      void finish();
+    }
   }, [begin, finish]);
 
-  return { supported: recorder.supported, phase, level, pressIn, pressOut, tap, cancel };
+  return { supported: recorder.supported, phase, level, locked, pressIn, pressOut, lock, tap, cancel };
 }
