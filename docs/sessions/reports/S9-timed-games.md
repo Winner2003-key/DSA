@@ -264,6 +264,9 @@ Route (app)                                 Size  First Load JS
 
 ## 3. Screenshots — `docs/sessions/reports/S9-screens/`
 
+> **The images were deleted on 2026-09-23.** The table below *is* the record. Don't re-capture these screens to find out what they showed — read the words. If you need a picture of something this table doesn't answer, capture only that one screen with `tools/screens/`, write down what it told you, and delete it again.
+
+
 From the offline web build (`EXPO_PUBLIC_DSA_OFFLINE=1`, graph `mini`) served locally, Playwright with the system Chrome, 390×844 @2×, light theme, reduced motion; the admin page at 1100×800 in mock mode. **0 page errors, 0 console errors.**
 
 | File | State |

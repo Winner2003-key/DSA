@@ -378,11 +378,11 @@ function GraphNode({ node, visible, animate, theme }: { node: LayoutNode; visibl
   const c = theme.colors;
   const isName = node.kind === 'NAME';
   const shape = {
-    QUESTION: { backgroundColor: c.surface, borderColor: c.brass, borderWidth: 2, borderRadius: 22, borderStyle: 'solid' as const },
-    SECTION: { backgroundColor: c.surfaceRaised, borderColor: c.ink, borderWidth: 2, borderRadius: 3, borderStyle: 'solid' as const },
-    GROUP: { backgroundColor: c.surface, borderColor: c.inkSoft, borderWidth: 2, borderRadius: 10, borderStyle: 'dashed' as const },
+    QUESTION: { backgroundColor: c.surface, borderColor: c.brass, borderWidth: 1, borderRadius: 22, borderStyle: 'solid' as const },
+    SECTION: { backgroundColor: c.surfaceRaised, borderColor: c.ink, borderWidth: 1, borderRadius: 3, borderStyle: 'solid' as const },
+    GROUP: { backgroundColor: c.surface, borderColor: c.inkSoft, borderWidth: 1, borderRadius: 10, borderStyle: 'dashed' as const },
     CLUE: { backgroundColor: c.surface, borderColor: c.line, borderWidth: 1.5, borderRadius: 14, borderStyle: 'solid' as const },
-    NAME: { backgroundColor: c.brass, borderColor: c.brassEdge, borderWidth: 2, borderRadius: 16, borderStyle: 'solid' as const },
+    NAME: { backgroundColor: c.brass, borderColor: c.brassEdge, borderWidth: 1, borderRadius: 16, borderStyle: 'solid' as const },
   }[node.kind];
 
   return (

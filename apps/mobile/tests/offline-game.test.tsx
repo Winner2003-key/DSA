@@ -96,7 +96,7 @@ describe('scenario 1 — secret CAÏN, normal play (AI Tireur)', () => {
 });
 
 describe('scenario 7 — the Tireur says "QUESTION" once (LOCAL)', () => {
-  it('undoes the wrong NON and keeps it out of the revealed path', async () => {
+  it('re-opens the list the pair is in, and keeps the wrong NON out of the revealed path', async () => {
     const offline = service();
     const { sessionId } = await offline.createSession({ graphSlug: 'mini', mode: 'LOCAL' });
     await offline.tireurReady(sessionId);
@@ -131,11 +131,14 @@ describe('scenario 7 — the Tireur says "QUESTION" once (LOCAL)', () => {
       await result.current.rewind(1);
     });
 
-    expect(result.current.state?.prompt?.text).toBe('LIE A ADAM');
-    expect(result.current.state?.path).toHaveLength(3);
+    // "QUESTION" goes back to the question that OPENED this list (GAME_RULES §4):
+    // the wrong NON never entered a level, so PENTATEUQUE is asked again.
+    expect(result.current.state?.prompt?.text).toBe('PENTATEUQUE');
+    expect(result.current.state?.path).toHaveLength(2);
     expect(result.current.state?.awaiting).toBe('QUESTION');
 
-    await play('OUI'); // the corrected answer
+    await play('OUI'); // PENTATEUQUE again
+    await play('OUI'); // the corrected answer to LIE A ADAM
     expect(result.current.state?.prompt?.text).toBe('CLASSE 1');
 
     const reveal = await offline.getRevealedPath(sessionId);
@@ -148,7 +151,7 @@ describe('scenario 7 — the Tireur says "QUESTION" once (LOCAL)', () => {
     // The undone NON is gone from the path the players will be shown.
     expect(reveal.path.some((p) => p.answer_label === 'NON')).toBe(false);
     // …but the server-side counts still include it, and the rewind.
-    expect(reveal.stats).toMatchObject({ questions: 5, non: 1, backs: 0, rewinds: 1 });
+    expect(reveal.stats).toMatchObject({ questions: 6, non: 1, backs: 0, rewinds: 1 });
   });
 
   it('records the book’s canonical label, not the spoken one', async () => {

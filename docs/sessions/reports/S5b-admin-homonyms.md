@@ -78,6 +78,9 @@ So **101 of the 236 descriptions are weak**. Accepting "Suggérer" would make al
 
 ## 2. Screenshots (`docs/sessions/reports/S5b-screens/`)
 
+> **The images were deleted on 2026-09-23.** The table below *is* the record. Don't re-capture these screens to find out what they showed — read the words. If you need a picture of something this table doesn't answer, capture only that one screen with `tools/screens/`, write down what it told you, and delete it again.
+
+
 Taken in mock mode (`NEXT_PUBLIC_DSA_MOCK=1`, the mini graph), driven by Playwright with the system Chrome at 1440×900; the tablet shots are 1024×768.
 
 | File | Shows |

@@ -68,6 +68,9 @@ searchNodes "ab"                        28.3 ms
 
 ## 2. Screenshots (`docs/sessions/reports/S5-screens/`)
 
+> **The images were deleted on 2026-09-23.** The table below *is* the record. Don't re-capture these screens to find out what they showed — read the words. If you need a picture of something this table doesn't answer, capture only that one screen with `tools/screens/`, write down what it told you, and delete it again.
+
+
 `next dev` ran with `NEXT_PUBLIC_DSA_MOCK=1`, driven by Playwright with the system Chrome at 1440×900 (tablet shots at 1024×768).
 
 | File | Shows |

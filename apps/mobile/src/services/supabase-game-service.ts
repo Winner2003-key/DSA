@@ -5,6 +5,7 @@ import { ensureRealtimeAuth, ensureSignedIn, getSupabase } from './supabase';
 import {
   DEFAULT_SETTINGS,
   FALLBACK_TIMER_DEFAULTS,
+  type BookSection,
   type CreateSessionOptions,
   type CreatedSession,
   type GameSettings,
@@ -125,7 +126,13 @@ function asSettings(raw: unknown): GameSettings {
     think_seconds: int('think_seconds', null),
     play_seconds: int('play_seconds', null),
     max_redraws: int('max_redraws', 0) ?? 0,
+    scope: asStringList(r.scope),
   };
+}
+
+/** A jsonb array of section ids; anything else (including a server without 07) is empty. */
+function asStringList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
 }
 
 function asStats(raw: unknown): GameStats | null {
@@ -232,6 +239,7 @@ export class SupabaseGameService implements GameService {
       server_now: asIso(raw.server_now) ?? new Date().toISOString(),
       redraws_used: typeof raw.redraws_used === 'number' ? raw.redraws_used : 0,
       redraws_left: typeof raw.redraws_left === 'number' ? raw.redraws_left : 0,
+      scope_labels: asStringList(raw.scope_labels),
     };
   }
 
@@ -241,10 +249,11 @@ export class SupabaseGameService implements GameService {
       p_mode: options.mode,
       p_role: options.role ?? null,
       p_display_name: options.displayName ?? null,
-      // Only the two keys a client may choose; the server fills in the rest.
+      // Only the keys a client may choose; the server fills in the rest.
       p_settings: {
         input_mode: options.settings?.input_mode ?? DEFAULT_SETTINGS.input_mode,
         timed: options.settings?.timed ?? DEFAULT_SETTINGS.timed,
+        scope: options.settings?.scope ?? DEFAULT_SETTINGS.scope,
       },
     });
     const row = SupabaseGameService.firstRow<CreateSessionRow>(data, 'dsa_create_session');
@@ -353,6 +362,22 @@ export class SupabaseGameService implements GameService {
       play_seconds: n('play_seconds', FALLBACK_TIMER_DEFAULTS.play_seconds),
       max_redraws: n('max_redraws', FALLBACK_TIMER_DEFAULTS.max_redraws),
     };
+  }
+
+  async listSections(graphSlug: string): Promise<BookSection[]> {
+    const data = await this.call('dsa_list_sections', { p_graph_slug: graphSlug });
+    if (!Array.isArray(data)) return [];
+    return data.flatMap((row) => {
+      const r = row as Record<string, unknown>;
+      if (typeof r.node_id !== 'string' || typeof r.label !== 'string') return [];
+      return [{
+        node_id: r.node_id,
+        label: r.label,
+        parent_id: typeof r.parent_id === 'string' ? r.parent_id : null,
+        depth: typeof r.depth === 'number' ? r.depth : 0,
+        characters: typeof r.characters === 'number' ? r.characters : 0,
+      }];
+    });
   }
 
   async getSolutionPath(sessionId: string): Promise<SolutionPath> {

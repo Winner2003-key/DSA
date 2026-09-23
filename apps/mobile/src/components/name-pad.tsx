@@ -7,6 +7,7 @@ import { Sheet } from './sheet';
 import { fr } from '@/i18n/fr';
 import { searchNames } from '@/state/use-names';
 import { useTheme } from '@/theme';
+import { Check } from './icon';
 
 export interface NamePadProps {
   visible: boolean;
@@ -58,7 +59,7 @@ export function NamePad({ visible, names, onClose, onSubmit }: NamePadProps) {
         style={{
           minHeight: theme.touch.primary,
           borderRadius: theme.radius.field,
-          borderWidth: 2,
+          borderWidth: 1,
           borderColor: theme.colors.line,
           backgroundColor: theme.colors.surface,
           paddingHorizontal: theme.space.md,
@@ -98,6 +99,7 @@ export function NamePad({ visible, names, onClose, onSubmit }: NamePadProps) {
       <View style={{ paddingTop: theme.space.xs }}>
         <PrimaryButton
           testID="name-submit"
+          icon={Check}
           label={fr.game.proposeNameSend}
           disabled={trimmed.length === 0}
           onPress={() => submit(trimmed)}

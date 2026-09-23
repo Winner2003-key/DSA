@@ -7,6 +7,7 @@ import { PrimaryButton, SecondaryButton } from './buttons';
 import { fr } from '@/i18n/fr';
 import { parseRoomCode } from '@/rooms/room-code';
 import { useTheme } from '@/theme';
+import { QrCode, X } from './icon';
 
 export interface QrScannerProps {
   visible: boolean;
@@ -57,7 +58,7 @@ export function QrScanner({ visible, onClose, onCode }: QrScannerProps) {
           {permission.canAskAgain ? fr.join.scanPermission : fr.join.scanDenied}
         </AppText>
         {permission.canAskAgain ? (
-          <PrimaryButton testID="scan-allow" label={fr.join.scanAllow} onPress={() => void requestPermission()} />
+          <PrimaryButton testID="scan-allow" icon={QrCode} label={fr.join.scanAllow} onPress={() => void requestPermission()} />
         ) : null}
       </View>
     );
@@ -104,7 +105,7 @@ export function QrScanner({ visible, onClose, onCode }: QrScannerProps) {
               {fr.join.scanNotARoom}
             </AppText>
           ) : null}
-          <SecondaryButton testID="scan-close" label={fr.app.close} onPress={onClose} />
+          <SecondaryButton testID="scan-close" icon={X} label={fr.app.close} onPress={onClose} />
         </View>
       </View>
     </Modal>

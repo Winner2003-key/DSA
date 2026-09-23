@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, View, type ViewStyle } from 'react-native';
 
 import { AppText } from './app-text';
+import { ICON_STROKE, type LucideIcon } from './icon';
 import { lightFeedback } from '@/lib/haptics';
 import { useTheme } from '@/theme';
 
@@ -13,10 +14,12 @@ export interface ButtonProps {
   hint?: string;
   testID?: string;
   style?: ViewStyle;
+  /** Drawn before the label. */
+  icon?: LucideIcon;
 }
 
-/** The main action of a screen: a brass slab with the same physical underside. */
-export function PrimaryButton({ label, onPress, disabled = false, hint, testID, style }: ButtonProps) {
+/** The main action of a screen: a flat filled bar, icon then label. */
+export function PrimaryButton({ label, onPress, disabled = false, hint, testID, style, icon: Icon }: ButtonProps) {
   const theme = useTheme();
   return (
     <Pressable
@@ -33,21 +36,21 @@ export function PrimaryButton({ label, onPress, disabled = false, hint, testID, 
       {({ pressed }) => (
         <View
           style={{
-            minHeight: theme.touch.primary,
+            minHeight: theme.touch.secondary,
             borderRadius: theme.radius.slab,
-            backgroundColor: theme.colors.brass,
-            borderBottomWidth: pressed ? 2 : 6,
-            borderBottomColor: theme.colors.brassEdge,
-            marginTop: pressed ? 4 : 0,
+            backgroundColor: pressed ? theme.colors.brassEdge : theme.colors.brass,
             paddingHorizontal: theme.space.lg,
             paddingVertical: theme.space.sm,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <AppText variant="title" weight="bold" tight style={{ color: theme.colors.brassInk }}>
-            {label}
-          </AppText>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.xs }}>
+            {Icon ? <Icon size={20} color={theme.colors.brassInk} strokeWidth={ICON_STROKE} /> : null}
+            <AppText variant="lead" weight="semibold" style={{ color: theme.colors.brassInk }}>
+              {label}
+            </AppText>
+          </View>
           {hint ? (
             <AppText variant="small" style={{ color: theme.colors.brassInk, opacity: 0.75, textAlign: 'center' }}>
               {hint}
@@ -60,7 +63,7 @@ export function PrimaryButton({ label, onPress, disabled = false, hint, testID, 
 }
 
 /** Outlined, quieter, still full-size: "Proposer un nom", "Revenir à une question". */
-export function SecondaryButton({ label, onPress, disabled = false, hint, testID, style }: ButtonProps) {
+export function SecondaryButton({ label, onPress, disabled = false, hint, testID, style, icon: Icon }: ButtonProps) {
   const theme = useTheme();
   return (
     <Pressable
@@ -77,9 +80,9 @@ export function SecondaryButton({ label, onPress, disabled = false, hint, testID
           width: '100%',
           minHeight: theme.touch.secondary,
           borderRadius: theme.radius.slab,
-          borderWidth: 2,
+          borderWidth: 1,
           borderColor: pressed ? theme.colors.brass : theme.colors.line,
-          backgroundColor: pressed ? theme.colors.surfaceRaised : theme.colors.surface,
+          backgroundColor: pressed ? theme.colors.brassSoft : theme.colors.surfaceRaised,
           paddingHorizontal: theme.space.md,
           paddingVertical: theme.space.sm,
           alignItems: 'center',
@@ -89,9 +92,12 @@ export function SecondaryButton({ label, onPress, disabled = false, hint, testID
         style,
       ]}
     >
-      <AppText variant="lead" weight="semibold">
-        {label}
-      </AppText>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.xs }}>
+        {Icon ? <Icon size={20} color={theme.colors.brass} strokeWidth={ICON_STROKE} /> : null}
+        <AppText variant="body" weight="semibold">
+          {label}
+        </AppText>
+      </View>
       {hint ? (
         <AppText variant="small" tone="soft" style={{ textAlign: 'center' }}>
           {hint}
@@ -102,7 +108,7 @@ export function SecondaryButton({ label, onPress, disabled = false, hint, testID
 }
 
 /** A quiet text action with a full-size touch target: "Voir le chemin". */
-export function LinkButton({ label, onPress, disabled = false, testID }: ButtonProps) {
+export function LinkButton({ label, onPress, disabled = false, testID, icon: Icon }: ButtonProps) {
   const theme = useTheme();
   return (
     <Pressable
@@ -120,9 +126,13 @@ export function LinkButton({ label, onPress, disabled = false, testID }: ButtonP
         paddingHorizontal: theme.space.lg,
         justifyContent: 'center',
         opacity: disabled ? 0.4 : pressed ? 0.6 : 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space.xs,
       })}
     >
-      <AppText variant="body" weight="semibold" tone="brass" style={{ textDecorationLine: 'underline' }}>
+      {Icon ? <Icon size={18} color={theme.colors.brass} strokeWidth={ICON_STROKE} /> : null}
+      <AppText variant="body" weight="semibold" tone="brass">
         {label}
       </AppText>
     </Pressable>
@@ -161,9 +171,9 @@ export function Chip({
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: theme.radius.chip,
-        borderWidth: 1.5,
+        borderWidth: 1,
         borderColor: selected ? theme.colors.brass : theme.colors.line,
-        backgroundColor: selected ? theme.colors.brass : pressed ? theme.colors.surfaceRaised : 'transparent',
+        backgroundColor: selected ? theme.colors.brass : pressed ? theme.colors.brassSoft : theme.colors.surfaceRaised,
         opacity: disabled ? 0.5 : 1,
       })}
     >

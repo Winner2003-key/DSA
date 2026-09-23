@@ -14,6 +14,7 @@ import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
 import { CalibrationOffer, CalibrationSheet } from './calibration-panel';
 import { TireurVoice, isVoiceGame } from './voice-play';
+import { Route } from '@/components';
 
 /** The book's own order, so the extra codes always sit in the same place. */
 const EXTRA_ORDER: AnswerClass[] = ['OUI_REPETE', 'NON_REPETE', 'JE_NE_SAIS_PAS'];
@@ -143,7 +144,7 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
       ) : null}
 
       {state.path.length > 0 ? (
-        <LinkButton testID="see-path" label={fr.conversation.seePath} onPress={() => setPathOpen(true)} />
+        <LinkButton testID="see-path" icon={Route} label={fr.conversation.seePath} onPress={() => setPathOpen(true)} />
       ) : null}
 
       {/* A zone of its own: a mis-tap here undoes answers, so it is far from the pad. */}
@@ -167,7 +168,9 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
         </View>
         <View style={{ flexDirection: 'row', gap: theme.space.xs }}>
           {([1, 2, 3] as const).map((count) => {
-            const disabled = !canRewind || count > state.path.length;
+            // Since 0010 any of ×1/×2/×3 is allowed as soon as one answer exists:
+            // asking for more lists than were opened goes back to the start.
+            const disabled = !canRewind || state.path.length === 0;
             return (
               <Pressable
                 key={count}
@@ -175,6 +178,7 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
                 accessibilityRole="button"
                 accessibilityState={{ disabled }}
                 accessibilityLabel={fr.tireur.rewindLabel(count)}
+                accessibilityHint={fr.tireur.rewindExplain(count)}
                 disabled={disabled}
                 onPress={() => {
                   warningFeedback();
@@ -184,7 +188,7 @@ export function TireurView({ sessionId, game }: TireurViewProps) {
                   flex: 1,
                   minHeight: theme.touch.secondary,
                   borderRadius: theme.radius.field,
-                  borderWidth: 2,
+                  borderWidth: 1,
                   borderColor: pressed ? theme.colors.danger : theme.colors.line,
                   backgroundColor: pressed ? theme.colors.surfaceRaised : 'transparent',
                   alignItems: 'center',

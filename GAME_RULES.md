@@ -44,10 +44,23 @@ If the Découvreur named the wrong leaf, or reaches the end of a list without a 
 ## 4. "QUESTION" — the Tireur corrects a mistake
 
 - If the Tireur realizes an earlier answer was wrong, they say **"QUESTION"** once, twice or three times.
-- The number of times tells the Découvreur **how many questions to go back**.
-- Those questions are asked again, and the Tireur gives the corrected answer.
+- The number of times tells the Découvreur **how many lists to go back up**, not how many questions to undo.
+- **"QUESTION" ×1** sends the pair back to the question that **opened the list they are in**. That question is asked again, everything answered since is undone, and the Tireur gives the corrected answer. ×2 goes one list higher, ×3 one higher still.
+- A mistake is recovered in **one step**, however many names were asked inside the list.
 
-> **Planned change (owner, 2026-09-17; not implemented yet, see `docs/sessions/BACKLOG.md` B1):** "QUESTION ×N" will go back N **levels**, to the question that **opened** the current list (for example back to "1ère classe ?" while the Découvreur is asking the names inside it), not to the previous question. Until the session that implements B1, the current behaviour stays.
+**What counts as a list.** A step goes one list deeper when it is a **spine answer** (ANCIEN, HOMME, PENTATEUQUE… — an answer code always moves) or a **OUI on an item of a list**. A **NON on an item is not** a new list: it only moves on to the next item.
+
+**Examples.**
+
+| Where the pair is | "QUESTION" ×1 asks again |
+|---|---|
+| "1ère classe ?" → OUI, then "1er ?" → NON, "2ème ?" → NON | **"1ère classe ?"** — answering NON then moves to the next class |
+| "PENTATEUQUE ?" → OUI, then "LIE A ADAM ?" → NON *(the mistake)*, now at "LIE A ABRAHAM ?" | **"PENTATEUQUE ?"** — the question that opened this list; the pair asks down again |
+| A spine question was just answered and nothing has been asked since | that same spine question |
+
+- If there are fewer lists above than the Tireur asked for, the pair goes back to the **very first question**. That is not an error.
+- The undone questions stay recorded as undone, and the game's statistics count **one** "QUESTION".
+- The Découvreur's own **"Revenir à une question"** (§3) is unchanged: they pick any earlier question on their path.
 
 ## 5. Truthful answers
 

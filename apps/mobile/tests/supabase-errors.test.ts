@@ -131,19 +131,19 @@ describe('SupabaseGameService call shapes', () => {
         p_role: null,
         p_display_name: null,
         // Only the two keys a client may choose (§9); the server fills the rest.
-        p_settings: { input_mode: 'BUTTONS', timed: false },
+        p_settings: { input_mode: 'BUTTONS', timed: false, scope: [] },
       },
     });
   });
 
-  it('sends the chosen input mode and chronometer in p_settings, and nothing else', async () => {
+  it('sends the chosen input mode, chronometer and scope in p_settings, and nothing else', async () => {
     const { service, calls } = succeeding([{ session_id: 'abc', room_code: 'DSA-1234' }]);
     await service.createSession({ graphSlug: 'mini', mode: 'AI_TIREUR', settings: { input_mode: 'VOICE' } });
-    expect((calls[0]?.args as { p_settings: unknown }).p_settings).toEqual({ input_mode: 'VOICE', timed: false });
+    expect((calls[0]?.args as { p_settings: unknown }).p_settings).toEqual({ input_mode: 'VOICE', timed: false, scope: [] });
 
     const timed = succeeding([{ session_id: 'abc', room_code: 'DSA-1234' }]);
     await timed.service.createSession({ graphSlug: 'mini', mode: 'LOCAL', settings: { timed: true } });
-    expect((timed.calls[0]?.args as { p_settings: unknown }).p_settings).toEqual({ input_mode: 'BUTTONS', timed: true });
+    expect((timed.calls[0]?.args as { p_settings: unknown }).p_settings).toEqual({ input_mode: 'BUTTONS', timed: true, scope: [] });
   });
 
   it('reads the clock and the name changes out of the state', async () => {
@@ -175,6 +175,7 @@ describe('SupabaseGameService call shapes', () => {
       think_seconds: 40,
       play_seconds: 120,
       max_redraws: 2,
+      scope: [],
     });
   });
 
@@ -272,7 +273,7 @@ describe('SupabaseGameService call shapes', () => {
       pending_guess: null,
       path: [],
       players: [],
-      settings: { input_mode: 'BUTTONS', timed: false, think_seconds: null, play_seconds: null, max_redraws: 0 },
+      settings: { input_mode: 'BUTTONS', timed: false, think_seconds: null, play_seconds: null, max_redraws: 0, scope: [] },
       tireur_ready: true,
       room_code: null,
       timed: false,
@@ -282,6 +283,7 @@ describe('SupabaseGameService call shapes', () => {
       server_now: expect.any(String),
       redraws_used: 0,
       redraws_left: 0,
+      scope_labels: [],
     });
   });
 });

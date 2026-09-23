@@ -38,6 +38,17 @@ These are the files the owner pastes into the hosted Supabase dashboard (**SQL E
 
 After `06`, the three durations can be changed in the admin app under **Réglages** (`app_settings`). They only affect games started afterwards.
 
+`07_rules_scope.sql` brings a project up to date with the rules-and-practice update: **"QUESTION" ×N** now sends the pair back to the question that opened the list they are in (GAME_RULES §4), and players can **practise one part of the book** (`settings.scope`, and the new `dsa_list_sections` RPC for the picker). Run it after `06` (it stops with a clear message if `06` is missing), then run `90_tests.sql` again and expect `ALL DSA TESTS PASSED`. It is safe to run more than once, and a new project doesn't need it: the regenerated `00` contains it. The new `90` refuses to run on a project that skipped `07`.
+
+| Order | File | What it does | Run again? |
+|---|---|---|---|
+| 1 | `07_rules_scope.sql` | Same content as `migrations/0010_rules_scope.sql` | Yes |
+| 2 | `90_tests.sql` | Checks everything, including the rewritten blocks 7–8d and the new block 18 (scope) | Yes |
+
+The new rule applies to games **already in progress**: the next "QUESTION" in them follows it.
+
+> **Paste the upgrade files in increasing order, and never an older one after a newer one.** Each file re-creates the functions as they were at its own version, so running `06` again *after* `07` silently puts the older `dsa_new_session` and `dsa_normalize_settings` back, and the scope stops being honoured. If that happens, just run the newest file again (or `00_all_migrations.sql`) and everything is repaired. `90_tests.sql` catches it either way.
+
 The optional hourly stale-room cleanup (pg_cron) is described in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#stale-rooms-0008).
 
 The full step-by-step setup is in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#setup-in-the-supabase-dashboard).
@@ -56,4 +67,4 @@ The full step-by-step setup is in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.m
 bash supabase/sql-editor/build.sh
 ```
 
-Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql`, `04_voice.sql`, `05_rooms.sql` and `06_timer.sql` are `0006`, `0007`, `0008` and `0009` with an owner-facing header; keep each pair identical when either changes.
+Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql`, `04_voice.sql`, `05_rooms.sql`, `06_timer.sql` and `07_rules_scope.sql` are `0006`, `0007`, `0008`, `0009` and `0010` with an owner-facing header; keep each pair identical when either changes.

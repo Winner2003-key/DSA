@@ -8,6 +8,7 @@ import { shareRoom } from '@/rooms/share';
 import { joinUrlFor } from '@/rooms/use-room';
 import type { GameState } from '@/services/types';
 import { useTheme } from '@/theme';
+import { Share2, X } from '@/components';
 
 export interface LobbyViewProps {
   state: GameState;
@@ -50,7 +51,7 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy }: LobbyView
       {code ? (
         <View style={{ gap: theme.space.md }}>
           <RoomCodeDisplay code={code} />
-          <SecondaryButton testID="lobby-share" label={fr.lobby.share} onPress={() => void share()} />
+          <SecondaryButton testID="lobby-share" icon={Share2} label={fr.lobby.share} onPress={() => void share()} />
           {notice ? (
             <AppText variant="small" tone="brass" testID="lobby-share-notice" style={{ textAlign: 'center' }}>
               {notice}
@@ -78,9 +79,13 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy }: LobbyView
             ? ` · ${fr.setup.timerHint(fr.timer.duration(state.settings.think_seconds), fr.timer.duration(state.settings.play_seconds))}`
             : ''}
         </AppText>
+        <AppText variant="small" tone="faint" testID="lobby-scope">
+          {fr.lobby.scope} :{' '}
+          {state.scope_labels.length === 0 ? fr.setup.scopeWhole : state.scope_labels.join(', ')}
+        </AppText>
       </View>
 
-      <SecondaryButton testID="lobby-cancel" label={fr.lobby.cancel} disabled={busy} onPress={onCancel} />
+      <SecondaryButton testID="lobby-cancel" icon={X} label={fr.lobby.cancel} disabled={busy} onPress={onCancel} />
     </View>
   );
 }

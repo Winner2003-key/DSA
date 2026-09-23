@@ -26,6 +26,7 @@ import { toDsaError, type DsaError } from '@/services/errors';
 import { cardDescription, type GameState, type RevealedPath, type SolutionPath } from '@/services/types';
 import { useSpeech } from '@/speech/use-speech';
 import { useTheme } from '@/theme';
+import { Check, House, RefreshCw, RotateCcw, X } from '@/components';
 
 export default function ResultatScreen() {
   const theme = useTheme();
@@ -155,12 +156,14 @@ export default function ResultatScreen() {
         <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
           <SecondaryButton
             testID="go-home"
+            icon={House}
             label={fr.result.home}
             onPress={() => router.replace('/')}
             style={{ flex: 1, width: undefined }}
           />
           <PrimaryButton
             testID="replay"
+            icon={RotateCcw}
             label={fr.result.replay}
             disabled={!state || starting}
             onPress={() => {
@@ -191,6 +194,7 @@ export default function ResultatScreen() {
             <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
               <SecondaryButton
                 testID="rematch-decline"
+                icon={X}
                 label={fr.rematch.decline}
                 disabled={starting}
                 onPress={decline}
@@ -198,6 +202,7 @@ export default function ResultatScreen() {
               />
               <PrimaryButton
                 testID="rematch-accept"
+                icon={Check}
                 label={fr.rematch.accept}
                 disabled={starting}
                 onPress={() => void accept()}
@@ -270,6 +275,7 @@ export default function ResultatScreen() {
           ) : null}
           <LinkButton
             testID="rematch-solo"
+            icon={RefreshCw}
             label={fr.rematch.newGame}
             onPress={() => {
               setReplayOpen(false);

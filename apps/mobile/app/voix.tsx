@@ -7,6 +7,7 @@ import { fr } from '@/i18n/fr';
 import { clearCalibration, useVoiceSettings } from '@/speech/voice-settings';
 import { useTheme } from '@/theme';
 import { CalibrationPanel, CalibrationSummary } from '@/views/calibration-panel';
+import { Mic } from '@/components';
 
 /**
  * "Réglages de la voix": how to talk (hold or free), and the Tireur's calibration,
@@ -62,6 +63,7 @@ export default function VoiceSettingsScreen() {
               )}
               <PrimaryButton
                 testID="voice-settings-calibrate"
+                icon={Mic}
                 label={settings.calibration ? fr.voice.calibrateAgain : fr.voice.calibrate}
                 onPress={() => setCalibrating(true)}
               />

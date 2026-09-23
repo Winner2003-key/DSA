@@ -41,3 +41,14 @@ export const lineHeight = {
   hero: 52,
   colossal: 64,
 } as const;
+
+/**
+ * Labels, hints and buttons use the platform's own sans; the slab is kept for
+ * titles and for what the game says (questions, names, answers), so the words
+ * that matter stand apart from the chrome around them.
+ */
+export const uiFamily = Platform.select({
+  ios: 'System',
+  android: 'sans-serif',
+  default: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+}) as string;

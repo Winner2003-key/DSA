@@ -33,7 +33,7 @@ function asRoomPhone(game: UseGame, role: 'TIREUR' | 'DECOUVREUR'): UseGame {
     state: {
       ...state,
       mode: 'HUMAN_VS_HUMAN',
-      settings: { input_mode: 'VOICE', timed: false, think_seconds: null, play_seconds: null, max_redraws: 2 },
+      settings: { input_mode: 'VOICE', timed: false, think_seconds: null, play_seconds: null, max_redraws: 2, scope: [] },
       room_code: 'DSA-4821',
       players: [
         { role: 'TIREUR', display_name: 'Awa', is_ai: false, is_me: role === 'TIREUR' },

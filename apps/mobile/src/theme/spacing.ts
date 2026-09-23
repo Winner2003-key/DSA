@@ -17,10 +17,10 @@ export const space = {
  */
 export const radius = {
   chip: 999,
-  slab: 14,
-  card: 24,
-  secret: 20,
-  field: 12,
+  slab: 12,
+  card: 16,
+  secret: 16,
+  field: 10,
 } as const;
 
 /** The reading column. Wider than this and long labels stop scanning well. */

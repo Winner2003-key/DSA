@@ -103,6 +103,7 @@ class RoomServer {
       server_now: T0,
       redraws_used: 0,
       redraws_left: 2,
+      scope_labels: [],
     };
   }
 
@@ -115,6 +116,7 @@ class RoomServer {
       supportsRealtime: true,
       createSession: async () => ({ sessionId: 's1', roomCode: 'DSA-4821' }),
       joinSession: async () => ({ sessionId: 's1', role: 'DECOUVREUR' }),
+      listSections: async () => [],
       getState: state,
       getMySecret: async (): Promise<Secret> => {
         record('getMySecret');

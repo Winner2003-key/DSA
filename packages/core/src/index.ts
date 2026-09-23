@@ -22,6 +22,8 @@ export { answerClass, allowedClassesFor, sameAnswer } from './answers';
 export { GraphIndex } from './graph-index';
 export { hasHomonyms } from './homonyms';
 export { solutionPath } from './solution';
+export { listSections, sectionIds, scopeCharacters, checkScope, normalizeScope, scopeLabels } from './scope';
+export type { Section, ScopeProblem } from './scope';
 export {
   NO_CLOCK,
   DEFAULT_CLOCK_SETTINGS,
@@ -46,6 +48,9 @@ export {
   applyAnswer,
   replaySteps,
   derivePosition,
+  entersLevel,
+  enteringStepIndices,
+  rewindTarget,
   isDeadEnd,
   correctDecisionEdge,
   correctAnswer,

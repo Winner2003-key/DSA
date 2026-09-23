@@ -54,6 +54,18 @@ The phone and the computer must be on the same network. If they aren't, use `npx
 - **Changing the name:** while looking at the card, a Tireur who cannot find that name in the book may draw another one — **twice by default, and only before the questions start**. A name already drawn never comes back, and the Découvreur is only told that the name changed.
 - **The preparation phase now exists in every mode with a human Tireur** (LOCAL and AI Découvreur too, not just rooms), timed or not. Nothing listens on the microphone during it.
 
+## Practising one part of the book ("Choisir une partie")
+
+- In Préparer la partie (and in room creation, where the creator chooses for both phones; the lobby shows it read-only): **« Tout le livre »**, the default, or **« Choisir une partie »**, which opens a picker of the book's sections as a compact tree with the number of names on each, "tout cocher" on any branch, and multi-select.
+- **It changes only which name is drawn.** The questions still start at the first one, so the pair walks the whole book down to that part and keeps learning the path. The game screen writes « Partie : LES EVANGILES » under the header.
+- The picker is fed by `dsa_list_sections`, which returns labels, parents, depths and counts and **never a name, a clue or a leaf** — no more than the book's table of contents.
+- Name changes stay inside the chosen part, and a rematch keeps it.
+- **Server:** needs `07_rules_scope.sql` (or the current `00`).
+
+## "QUESTION" — going back a whole list
+
+The Tireur's **QUESTION ×1/×2/×3** sends the pair back to the question that **opened the list they are in**, not to the previous answer (GAME_RULES §4), so a mistake is undone in one step. ×2 goes one list higher, ×3 one higher still; asking for more lists than were opened goes back to the very first question. The Découvreur reads a notice saying which question to ask again. In Voix the intent is unchanged: the word "question" said one, two or three times.
+
 ## The end of every game
 
 The result screen shows the game card first — "Trouvé !", "Temps écoulé" or "Partie arrêtée", the name, the statistics and, for a timed game that was won, "Trouvé en 1 min 12 s sur 2 min" — and then **the book's own path to that name** in the animated `PathGraph`: every question in book order with the right answers, down to the card. It is not the players' path, which stays behind "Voir le chemin" during play.
@@ -120,7 +132,7 @@ src/views/                GameTable (hand-over), DecouvreurView (conversation), 
                           RoomTable (lobby, banners), LobbyView, DecouvreurWaitingView, JoinView,
                           voice-play (DecouvreurVoice, TireurVoice), calibration-panel (panel, sheet, offer)
 src/components/           GameHeader, ExchangePair, AnswerStamp, SecretCard (flip), PathGraph (SVG, gestures),
-                          CountdownRing, CheckCard, …
+                          CountdownRing, CheckCard, ScopePicker (the book's sections as a tree), …
 src/speech/               tts.ts (expo-speech / speechSynthesis), use-speech (mute, held back while listening),
                           recorder.native.ts / recorder.web.ts (one Recorder interface), transcriber.ts (Edge Function client),
                           use-voice-capture (hold / free talk), use-voice-turn (transcribe, fallbacks), interpret.ts (pure),
@@ -130,7 +142,8 @@ src/theme/                palette (dark and light, book answer colours), Zilla S
 tests/                    offline scenarios, error mapping, secret never shown, path layout, conversation pairing, homonyms, LOCAL Tireur first,
                           room codes, realtime sync, room state machine, rematch, rooms flow, useGame realtime,
                           voice (interpret, game flows with a fake mic, calibration, rooms + "Est-ce" snapshot),
-                          timer (fake clock), redraw ("Changer de nom"), result + the book's path
+                          timer (fake clock), redraw ("Changer de nom"), result + the book's path,
+                          rewind-rule ("QUESTION" goes back a list), scope (practising one part of the book)
 ```
 
 The UI contains no game rules. It renders the state JSON from `dsa_get_state` and calls the service.

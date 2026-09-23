@@ -233,6 +233,9 @@ A 300 ms tone measures **0.4 s** and a 1200 ms tone **1.3 s**. The analyser and 
 
 **Screenshots** (`docs/sessions/reports/S7b-screens/`, 390×844 @2x, light theme, offline demo):
 
+> **The images were deleted on 2026-09-23.** The table below *is* the record. Don't re-capture these screens to find out what they showed — read the words. If you need a picture of something this table doesn't answer, capture only that one screen with `tools/screens/`, write down what it told you, and delete it again.
+
+
 | File | State |
 |---|---|
 | 01-setup-voix-selectable | Préparer la partie: "Voix" selected (no longer "Bientôt") |

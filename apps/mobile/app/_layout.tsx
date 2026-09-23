@@ -14,7 +14,7 @@ import { ZillaSlab_600SemiBold } from '@expo-google-fonts/zilla-slab/600SemiBold
 import { ZillaSlab_700Bold } from '@expo-google-fonts/zilla-slab/700Bold';
 
 import { SpeechProvider } from '@/speech/use-speech';
-import { ThemeProvider, darkPalette, useTheme } from '@/theme';
+import { ThemeProvider, lightPalette, useTheme } from '@/theme';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -44,7 +44,7 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: darkPalette.bg }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: lightPalette.bg }}>
       <SafeAreaProvider>
         <ThemeProvider fontsReady={loaded}>
           <SpeechProvider>

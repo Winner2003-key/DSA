@@ -296,6 +296,9 @@ page errors / console errors: 1
 
 Screenshots from run 3 are in `docs/sessions/reports/S6-screens/`, in the light theme (the headless browser's system setting):
 
+> **The images were deleted on 2026-09-23.** The table below *is* the record. Don't re-capture these screens to find out what they showed — read the words. If you need a picture of something this table doesn't answer, capture only that one screen with `tools/screens/`, write down what it told you, and delete it again.
+
+
 | File | State |
 |---|---|
 | 01-awa-lobby | Lobby: "Partie créée", DSA-4412, Partager, QR code, Awa (Toi) Connecté, "En attente du Découvreur…", Façon de jouer : Boutons |

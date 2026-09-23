@@ -1,7 +1,7 @@
 import React from 'react';
 import { Text, type TextProps, type TextStyle } from 'react-native';
 
-import { useTheme } from '@/theme';
+import { uiFamily, useTheme } from '@/theme';
 
 export type TextVariant = 'micro' | 'small' | 'body' | 'lead' | 'title' | 'display' | 'hero' | 'colossal';
 export type TextTone = 'ink' | 'soft' | 'faint' | 'brass' | 'danger' | 'inherit';
@@ -12,13 +12,19 @@ export interface AppTextProps extends TextProps {
   weight?: 'regular' | 'medium' | 'semibold' | 'bold';
   /** Tightens tracking on the very large sizes, where default spacing looks loose. */
   tight?: boolean;
+  /** Forces the slab on a small size (a question or a name), or the sans on a big one. */
+  face?: 'slab' | 'ui';
 }
+
+const UI_WEIGHT = { regular: '400', medium: '500', semibold: '600', bold: '700' } as const;
+const SLAB_BY_DEFAULT: readonly TextVariant[] = ['title', 'display', 'hero', 'colossal'];
 
 export function AppText({
   variant = 'body',
   tone = 'ink',
   weight = 'regular',
   tight,
+  face,
   style,
   ...rest
 }: AppTextProps) {
@@ -33,7 +39,9 @@ export function AppText({
   };
 
   const base: TextStyle = {
-    fontFamily: theme.font[weight],
+    ...((face ?? (SLAB_BY_DEFAULT.includes(variant) ? 'slab' : 'ui')) === 'slab'
+      ? { fontFamily: theme.font[weight] }
+      : { fontFamily: uiFamily, fontWeight: UI_WEIGHT[weight] }),
     fontSize: theme.fontSize[variant],
     lineHeight: theme.lineHeight[variant],
     color: color[tone],

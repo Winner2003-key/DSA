@@ -211,6 +211,9 @@ Exported: dist
 
 ## 3. Screenshots — `docs/sessions/reports/S3b-screens/`
 
+> **The images were deleted on 2026-09-23.** The table below *is* the record. Don't re-capture these screens to find out what they showed — read the words. If you need a picture of something this table doesn't answer, capture only that one screen with `tools/screens/`, write down what it told you, and delete it again.
+
+
 **How they were made:**
 - a web build with `EXPO_PUBLIC_DSA_OFFLINE=1`, served locally;
 - Playwright with the system Chrome;

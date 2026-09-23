@@ -4,13 +4,18 @@ import {
   GraphIndex,
   NO_CLOCK,
   answerClass,
+  checkScope,
   currentPrompt,
   decisionEdgeFor,
   derivePosition,
   endThinking,
   hasHomonyms,
+  listSections,
+  normalizeScope,
   phaseOf,
   restartThinking,
+  scopeCharacters,
+  scopeLabels,
   solutionPath,
   startPlay,
   tick,
@@ -29,6 +34,7 @@ import { DsaError, toDsaError } from './errors';
 import type { GameService } from './game-service';
 import {
   DEFAULT_SETTINGS,
+  type BookSection,
   type CreateSessionOptions,
   type CreatedSession,
   type GameSettings,
@@ -86,10 +92,14 @@ interface OfflineSession {
  * durations and `max_redraws` are copied from the app settings, so a running
  * game keeps them whatever the admin does afterwards.
  */
-export function normalizeSettings(raw: unknown, app: OfflineAppSettings = OFFLINE_APP_SETTINGS): GameSettings {
+export function normalizeSettings(
+  raw: unknown,
+  app: OfflineAppSettings = OFFLINE_APP_SETTINGS,
+  index?: GraphIndex,
+): GameSettings {
   const value = raw ?? {};
   if (typeof value !== 'object' || Array.isArray(value)) throw new DsaError('INVALID_SETTINGS', 'settings must be an object');
-  const unknown = Object.keys(value).filter((key) => key !== 'input_mode' && key !== 'timed');
+  const unknown = Object.keys(value).filter((key) => key !== 'input_mode' && key !== 'timed' && key !== 'scope');
   if (unknown.length > 0) throw new DsaError('INVALID_SETTINGS', `unknown setting(s): ${unknown.join(', ')}`);
 
   const mode = (value as { input_mode?: unknown }).input_mode ?? null;
@@ -99,12 +109,23 @@ export function normalizeSettings(raw: unknown, app: OfflineAppSettings = OFFLIN
   const timed = (value as { timed?: unknown }).timed ?? false;
   if (typeof timed !== 'boolean') throw new DsaError('INVALID_SETTINGS', 'timed must be true or false');
 
+  const rawScope = (value as { scope?: unknown }).scope ?? [];
+  if (!Array.isArray(rawScope) || rawScope.some((id) => typeof id !== 'string')) {
+    throw new DsaError('INVALID_SETTINGS', 'scope must be an array of section ids');
+  }
+  const scope = normalizeScope(rawScope as string[]);
+  if (index) {
+    const problem = checkScope(index, scope);
+    if (problem) throw new DsaError(problem.code, problem.message);
+  }
+
   return {
     input_mode: mode ?? DEFAULT_SETTINGS.input_mode,
     timed,
     think_seconds: timed ? app.thinkSeconds : null,
     play_seconds: timed ? app.playSeconds : null,
     max_redraws: app.maxRedraws,
+    scope,
   };
 }
 
@@ -199,9 +220,17 @@ export class OfflineGameService implements GameService {
     return ticked;
   }
 
-  /** The card this game draws: a fixed one in tests, otherwise a random playable one. */
-  private newGame(): EngineState {
-    if (this.secretNodeKey === null) return this.engine.newGame();
+  /**
+   * The card this game draws: a fixed one in tests, otherwise a random playable
+   * one **inside the scope** (`dsa_new_session`). An empty scope is the whole book.
+   */
+  private newGame(scope: string[]): EngineState {
+    if (this.secretNodeKey === null) {
+      const candidates = scopeCharacters(this.index, scope);
+      if (candidates.length === 0) throw new DsaError('NO_PLAYABLE_SECRET');
+      const pick = candidates[Math.floor(Math.random() * candidates.length)] as (typeof candidates)[number];
+      return this.engine.newGame(pick.id);
+    }
     const node = this.index.nodeByKey(this.secretNodeKey);
     if (!node) throw new DsaError('NO_PLAYABLE_SECRET', `unknown node key ${this.secretNodeKey}`);
     return this.engine.newGame(node.id);
@@ -311,6 +340,7 @@ export class OfflineGameService implements GameService {
       server_now: this.now(),
       redraws_used: session.previousSecrets.length,
       redraws_left: Math.max(0, session.settings.max_redraws - session.previousSecrets.length),
+      scope_labels: scopeLabels(this.index, session.settings.scope),
     };
   }
 
@@ -333,7 +363,7 @@ export class OfflineGameService implements GameService {
 
   async createSession(options: CreateSessionOptions): Promise<CreatedSession> {
     await this.restore();
-    const settings = normalizeSettings(options.settings, this.appSettings);
+    const settings = normalizeSettings(options.settings, this.appSettings, this.index);
     try {
       // Only the AI Tireur has no card to look at; every other mode starts in
       // the preparation phase, exactly as the server does it.
@@ -343,7 +373,7 @@ export class OfflineGameService implements GameService {
         roomCode: randomRoomCode(),
         mode: options.mode,
         displayName: options.displayName ?? 'Toi',
-        state: this.newGame(),
+        state: this.newGame(settings.scope),
         settings,
         clock: startPlay(
           { timed: settings.timed, thinkSeconds: settings.think_seconds ?? this.appSettings.thinkSeconds, playSeconds: settings.play_seconds ?? this.appSettings.playSeconds },
@@ -414,7 +444,7 @@ export class OfflineGameService implements GameService {
 
     const current = session.state.secretNodeId;
     const drawn = new Set([...session.previousSecrets, ...(current ? [current] : [])]);
-    const candidates = this.index.playableCharacters().filter((node) => !drawn.has(node.id));
+    const candidates = scopeCharacters(this.index, session.settings.scope).filter((node) => !drawn.has(node.id));
     if (candidates.length === 0) throw new DsaError('NO_PLAYABLE_SECRET');
     const next = candidates[Math.floor(Math.random() * candidates.length)] as (typeof candidates)[number];
 
@@ -567,6 +597,16 @@ export class OfflineGameService implements GameService {
 
   private static isOver(status: EngineState['status']): boolean {
     return status === 'DISCOVERED' || status === 'ABANDONED' || status === 'TIME_UP';
+  }
+
+  async listSections(_graphSlug: string): Promise<BookSection[]> {
+    return listSections(this.index).map((section) => ({
+      node_id: section.nodeId,
+      label: section.label,
+      parent_id: section.parentId,
+      depth: section.depth,
+      characters: section.characters,
+    }));
   }
 
   async getTimerDefaults(): Promise<TimerDefaults> {

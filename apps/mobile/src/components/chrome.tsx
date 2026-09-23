@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, View } from 'react-native';
 
 import { AppText } from './app-text';
+import { ArrowLeft, House, IconButton, Volume2, VolumeX, X } from './icon';
 import { fr } from '@/i18n/fr';
 import { useSpeech } from '@/speech/use-speech';
 import { useTheme } from '@/theme';
@@ -36,6 +37,9 @@ export interface TopBarProps {
 
 export function TopBar({ onBack, backLabel, right }: TopBarProps) {
   const theme = useTheme();
+  const label = backLabel ?? fr.app.back;
+  // The label stays for screen readers; the icon says where the button goes.
+  const icon = label === fr.app.home ? House : label === fr.app.quit || label === fr.lobby.cancel ? X : ArrowLeft;
   return (
     <View
       style={{
@@ -46,53 +50,25 @@ export function TopBar({ onBack, backLabel, right }: TopBarProps) {
         marginBottom: theme.space.xs,
       }}
     >
-      {onBack ? (
-        <Pressable
-          testID="top-back"
-          accessibilityRole="button"
-          accessibilityLabel={backLabel ?? fr.app.back}
-          onPress={onBack}
-          hitSlop={12}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingVertical: theme.space.xs })}
-        >
-          <AppText variant="body" weight="medium" tone="soft">
-            ‹ {backLabel ?? fr.app.back}
-          </AppText>
-        </Pressable>
-      ) : (
-        <View />
-      )}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>{right}</View>
+      {onBack ? <IconButton testID="top-back" icon={icon} accessibilityLabel={label} onPress={onBack} /> : <View />}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.xs }}>{right}</View>
     </View>
   );
 }
 
 /** Mute toggle. Speech is a real channel here, so the control is always reachable. */
 export function SoundToggle() {
-  const theme = useTheme();
   const { muted, toggleMuted } = useSpeech();
   return (
-    <Pressable
+    <IconButton
       testID="sound-toggle"
+      icon={muted ? VolumeX : Volume2}
       accessibilityRole="switch"
       accessibilityState={{ checked: !muted }}
       accessibilityLabel={muted ? fr.app.soundOff : fr.app.soundOn}
+      active={!muted}
       onPress={toggleMuted}
-      hitSlop={12}
-      style={({ pressed }) => ({
-        minHeight: theme.touch.icon,
-        justifyContent: 'center',
-        paddingHorizontal: theme.space.sm,
-        borderRadius: theme.radius.chip,
-        borderWidth: 1.5,
-        borderColor: muted ? theme.colors.line : theme.colors.brass,
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      <AppText variant="small" weight="semibold" tone={muted ? 'faint' : 'brass'}>
-        {muted ? '🔇' : '🔊'} {fr.app.sound}
-      </AppText>
-    </Pressable>
+    />
   );
 }
 

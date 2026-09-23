@@ -1,11 +1,10 @@
 /**
- * DSA palette — "le tableau": a chalkboard recitation lit by a brass lamp.
+ * DSA palette — a cool paper white with a muted teal-blue for actions, and a
+ * slate night theme that mirrors it. Nothing saturated outside the answers.
  *
- * The game is played aloud, often in the evening, with one phone passed across a
- * table, so the dark theme is the reference and the light theme is its daytime
- * exercise-book counterpart.
- *
- * Brass is for actions (what you press). Answers are the book's own page-2 tag
+ * `brass` is kept as the token name for the action colour (what you press), so
+ * components did not have to change when the palette moved away from brass;
+ * `accent` is the warm second colour for a selected role. Answers are the book's own page-2 tag
  * colours (what was said): OUI green, NON amber, the repeated codes red, JE NE
  * SAIS PAS blue. Colour is never the only signal — every answer carries its word,
  * and the repeated codes also carry the stacked-bar mark.
@@ -30,6 +29,11 @@ export interface Palette {
   readonly brass: string;
   readonly brassInk: string;
   readonly brassEdge: string;
+  /** Warm second accent: the Découvreur's selection, soft highlights. */
+  readonly accent: string;
+  readonly accentSoft: string;
+  /** Tinted background behind a selected card or an icon tile. */
+  readonly brassSoft: string;
   readonly danger: string;
   readonly overlay: string;
   readonly answers: {
@@ -44,48 +48,54 @@ export interface Palette {
 
 export const darkPalette: Palette = {
   scheme: 'dark',
-  bg: '#0E1A17',
-  surface: '#16241F',
-  surfaceRaised: '#1E2F28',
-  line: '#2B3C34',
-  ink: '#F3EEE2',
-  inkSoft: '#9FB0A4',
-  inkFaint: '#6B7C71',
-  brass: '#E9A825',
-  brassInk: '#14210F',
-  brassEdge: '#A8740E',
-  danger: '#E2705A',
-  overlay: 'rgba(6, 12, 10, 0.86)',
+  bg: '#12181C',
+  surface: '#1A2227',
+  surfaceRaised: '#222C32',
+  line: '#2E3A41',
+  ink: '#E8EEF0',
+  inkSoft: '#A3B2B8',
+  inkFaint: '#6E7F86',
+  brass: '#6FB3C4',
+  brassInk: '#0E1B20',
+  brassEdge: '#4A8A9A',
+  accent: '#D9A45B',
+  accentSoft: '#2E2A22',
+  brassSoft: '#1D3037',
+  danger: '#E07A66',
+  overlay: 'rgba(8, 12, 14, 0.86)',
   answers: {
-    OUI: { fill: '#2E8049', ink: '#F2FBF4', edge: '#1B5530' },
-    NON: { fill: '#E3B23C', ink: '#231A05', edge: '#A57C18' },
-    OUI_REPETE: { fill: '#B8412F', ink: '#FFF2EE', edge: '#7C2619' },
-    NON_REPETE: { fill: '#B8412F', ink: '#FFF2EE', edge: '#7C2619' },
-    JE_NE_SAIS_PAS: { fill: '#2F6DB5', ink: '#F1F6FD', edge: '#1D4A80' },
-    AUTRE: { fill: '#3A4A42', ink: '#DCE3DC', edge: '#232F29' },
+    OUI: { fill: '#3C8A5E', ink: '#F2FBF5', edge: '#285F40' },
+    NON: { fill: '#D9A441', ink: '#221905', edge: '#9E7422' },
+    OUI_REPETE: { fill: '#B5503F', ink: '#FFF2EE', edge: '#7C3226' },
+    NON_REPETE: { fill: '#B5503F', ink: '#FFF2EE', edge: '#7C3226' },
+    JE_NE_SAIS_PAS: { fill: '#4677B0', ink: '#F1F6FD', edge: '#2E5382' },
+    AUTRE: { fill: '#3A474E', ink: '#DCE4E7', edge: '#252F34' },
   },
 };
 
 export const lightPalette: Palette = {
   scheme: 'light',
-  bg: '#E7EDE6',
-  surface: '#F5F8F3',
+  bg: '#EEF2F4',
+  surface: '#F7F9FA',
   surfaceRaised: '#FFFFFF',
-  line: '#C6D2C4',
-  ink: '#13251D',
-  inkSoft: '#4F6459',
-  inkFaint: '#7B8E82',
-  brass: '#B8760A',
-  brassInk: '#FFF7E8',
-  brassEdge: '#7E4F04',
-  danger: '#A63A22',
-  overlay: 'rgba(19, 37, 29, 0.76)',
+  line: '#D5DEE2',
+  ink: '#17252B',
+  inkSoft: '#51636B',
+  inkFaint: '#85959C',
+  brass: '#2F6B7A',
+  brassInk: '#FFFFFF',
+  brassEdge: '#22505C',
+  accent: '#C07F2C',
+  accentSoft: '#FBF1E3',
+  brassSoft: '#E4EFF2',
+  danger: '#B04A36',
+  overlay: 'rgba(23, 37, 43, 0.72)',
   answers: {
-    OUI: { fill: '#277342', ink: '#F2FBF4', edge: '#174A29' },
-    NON: { fill: '#E0A92A', ink: '#231A05', edge: '#9C7212' },
-    OUI_REPETE: { fill: '#A93A29', ink: '#FFF2EE', edge: '#6E2115' },
-    NON_REPETE: { fill: '#A93A29', ink: '#FFF2EE', edge: '#6E2115' },
-    JE_NE_SAIS_PAS: { fill: '#2A62A6', ink: '#F1F6FD', edge: '#1A4175' },
-    AUTRE: { fill: '#65756B', ink: '#F4F7F2', edge: '#44514A' },
+    OUI: { fill: '#3A8159', ink: '#F2FBF5', edge: '#285C3F' },
+    NON: { fill: '#D9A441', ink: '#221905', edge: '#A07624' },
+    OUI_REPETE: { fill: '#B0493A', ink: '#FFF2EE', edge: '#7A3024' },
+    NON_REPETE: { fill: '#B0493A', ink: '#FFF2EE', edge: '#7A3024' },
+    JE_NE_SAIS_PAS: { fill: '#3E6FA8', ink: '#F1F6FD', edge: '#2A4E7A' },
+    AUTRE: { fill: '#6C7C83', ink: '#F4F7F8', edge: '#4B585E' },
   },
 };

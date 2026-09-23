@@ -27,7 +27,7 @@ export function TextField({ label, hint, large = false, style, ...input }: TextF
           {
             minHeight: theme.touch.primary,
             borderRadius: theme.radius.field,
-            borderWidth: 2,
+            borderWidth: 1,
             borderColor: theme.colors.line,
             backgroundColor: theme.colors.surface,
             paddingHorizontal: theme.space.md,

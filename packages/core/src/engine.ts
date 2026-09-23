@@ -11,6 +11,7 @@ import {
   isCorrectName,
   isDeadEnd,
   replaySteps,
+  rewindTarget,
 } from './rules';
 import { normalizeName } from './normalize';
 import type {
@@ -145,14 +146,19 @@ export class GameEngine {
     return this.truncate(s, stepIndex, { type: 'BACK', at: this.now(), stepIndex, undoneCount: s.steps.length - stepIndex });
   }
 
-  /** Tireur says "QUESTION" ×count: the last `count` steps are undone. */
+  /**
+   * Tireur says "QUESTION" ×count: back to the question that opened the list the
+   * Découvreur is in, `count` levels up (GAME_RULES §4). Everything from that
+   * question on is undone, and it is asked again.
+   */
   rewind(s: EngineState, count: 1 | 2 | 3): EngineState {
     this.assertPlaying(s);
     if (s.awaiting === 'GUESS_CONFIRM' || s.awaiting === 'NONE') throw new EngineError('NOT_AWAITING_QUESTION');
-    if (!Number.isInteger(count) || count < 1 || count > 3 || count > s.steps.length) {
+    if (!Number.isInteger(count) || count < 1 || count > 3 || s.steps.length === 0) {
       throw new EngineError('INVALID_REWIND', `cannot rewind ${count} of ${s.steps.length} steps`);
     }
-    return this.truncate(s, s.steps.length - count, { type: 'REWIND', at: this.now(), count, undoneCount: count });
+    const keep = rewindTarget(this.ix, s.steps, count);
+    return this.truncate(s, keep, { type: 'REWIND', at: this.now(), count, undoneCount: s.steps.length - keep });
   }
 
   abandon(s: EngineState): EngineState {

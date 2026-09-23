@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, View } from 'react-native';
 
 import { AppText } from './app-text';
+import { IconTile, type LucideIcon } from './icon';
 import { lightFeedback } from '@/lib/haptics';
 import { useTheme } from '@/theme';
 
@@ -12,14 +13,17 @@ export interface CheckCardProps {
   onPress: () => void;
   disabled?: boolean;
   testID?: string;
+  icon?: LucideIcon;
+  /** Half-width tile, two side by side (Voix and Chronomètre on the setup screen). */
+  compact?: boolean;
 }
 
 /**
- * A switch you either want or you don't, laid out like `ChoiceCard` so the setup
- * screen reads as one list. The mark is a tick in a square, not a radio circle:
- * the one on the line above is a choice between options, this one is a yes/no.
+ * An on/off setting drawn as a switch, laid out like `ChoiceCard` so the setup
+ * screen reads as one set. The radio tick above is a choice between options;
+ * this switch is a yes or no.
  */
-export function CheckCard({ title, hint, checked, onPress, disabled = false, testID }: CheckCardProps) {
+export function CheckCard({ title, hint, checked, onPress, disabled = false, testID, icon, compact = false }: CheckCardProps) {
   const theme = useTheme();
   return (
     <Pressable
@@ -34,25 +38,27 @@ export function CheckCard({ title, hint, checked, onPress, disabled = false, tes
         onPress();
       }}
       style={({ pressed }) => ({
-        minHeight: theme.touch.primary,
+        flex: compact ? 1 : undefined,
+        minHeight: theme.touch.secondary,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: theme.space.md,
+        gap: theme.space.xs,
         borderRadius: theme.radius.slab,
-        borderWidth: 2,
-        borderColor: checked ? theme.colors.brass : theme.colors.line,
-        backgroundColor: checked ? theme.colors.surfaceRaised : pressed ? theme.colors.surface : 'transparent',
-        paddingHorizontal: theme.space.md,
-        paddingVertical: theme.space.sm,
+        borderWidth: 1,
+        borderColor: theme.colors.line,
+        backgroundColor: pressed ? theme.colors.surface : theme.colors.surfaceRaised,
+        paddingHorizontal: theme.space.sm,
+        paddingVertical: theme.space.xs,
         opacity: disabled ? 0.55 : 1,
       })}
     >
+      {icon ? <IconTile icon={icon} selected={checked} /> : null}
       <View style={{ flex: 1 }}>
-        <AppText variant="lead" weight="semibold">
+        <AppText variant="small" weight="semibold" numberOfLines={1}>
           {title}
         </AppText>
         {hint ? (
-          <AppText variant="small" tone="soft">
+          <AppText variant="micro" tone="soft" numberOfLines={compact ? 1 : undefined}>
             {hint}
           </AppText>
         ) : null}
@@ -60,21 +66,16 @@ export function CheckCard({ title, hint, checked, onPress, disabled = false, tes
       <View
         testID={testID ? `${testID}-mark` : undefined}
         style={{
-          width: 26,
-          height: 26,
-          borderRadius: 7,
-          borderWidth: 2,
-          borderColor: checked ? theme.colors.brass : theme.colors.inkFaint,
-          backgroundColor: checked ? theme.colors.brass : 'transparent',
-          alignItems: 'center',
+          width: 34,
+          height: 20,
+          borderRadius: 10,
+          padding: 2,
+          backgroundColor: checked ? theme.colors.brass : theme.colors.line,
+          alignItems: checked ? 'flex-end' : 'flex-start',
           justifyContent: 'center',
         }}
       >
-        {checked ? (
-          <AppText variant="small" weight="bold" style={{ color: theme.colors.brassInk, lineHeight: 18 }}>
-            ✓
-          </AppText>
-        ) : null}
+        <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: theme.colors.surfaceRaised }} />
       </View>
     </Pressable>
   );

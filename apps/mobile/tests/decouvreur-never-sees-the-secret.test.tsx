@@ -84,6 +84,10 @@ class FakeService implements GameService {
   async getTimerDefaults() {
     return { think_seconds: 40, play_seconds: 120, max_redraws: 2 };
   }
+  /** The picker's tree: sections only, so a Découvreur learns no name from it. */
+  async listSections() {
+    return [];
+  }
   /** Even here the book's path never names the card before the end. */
   async getSolutionPath() {
     return { status: 'DISCOVERED' as const, path: [], secret: null };

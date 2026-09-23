@@ -16,6 +16,7 @@ import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
 import { CalibrationOffer, CalibrationSheet } from './calibration-panel';
 import { isVoiceGame } from './voice-play';
+import { Check, RefreshCw, X } from '@/components';
 
 /**
  * The preparation phase, before the first question: the Tireur turns the card
@@ -71,6 +72,7 @@ export function TireurReadyView({ sessionId, game }: { sessionId: string; game: 
 
       <PrimaryButton
         testID="tireur-ready-done"
+        icon={Check}
         label={fr.ready.done}
         disabled={game.busy}
         onPress={game.confirmTireurReady}
@@ -79,6 +81,7 @@ export function TireurReadyView({ sessionId, game }: { sessionId: string; game: 
       {game.canRedraw ? (
         <SecondaryButton
           testID="tireur-redraw"
+          icon={RefreshCw}
           label={`${fr.ready.redraw} · ${fr.ready.redrawLeft(left)}`}
           disabled={game.busy}
           onPress={() => setConfirming(true)}
@@ -95,11 +98,12 @@ export function TireurReadyView({ sessionId, game }: { sessionId: string; game: 
         <View style={{ gap: theme.space.sm }}>
           <PrimaryButton
             testID="redraw-confirm"
+            icon={RefreshCw}
             label={fr.ready.redrawConfirm}
             disabled={game.busy}
             onPress={() => void redraw()}
           />
-          <SecondaryButton testID="redraw-cancel" label={fr.ready.redrawCancel} onPress={() => setConfirming(false)} />
+          <SecondaryButton testID="redraw-cancel" icon={X} label={fr.ready.redrawCancel} onPress={() => setConfirming(false)} />
         </View>
       </Sheet>
 

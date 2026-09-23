@@ -1,16 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { GameMode, Role } from '@dsa/core';
 
 import {
   AppText,
+  BookOpen,
   CheckCard,
+  ChevronRight,
+  Clock,
+  Eye,
+  EyeOff,
+  IconTile,
+  Mic,
+  Play,
+  Users,
   ChoiceCard,
   ErrorBanner,
   OfflineBadge,
   PrimaryButton,
   Screen,
+  ScopePicker,
   SoundToggle,
   TextField,
   TopBar,
@@ -19,19 +29,21 @@ import { fr } from '@/i18n/fr';
 import { cleanPlayerName, loadPlayerName, MAX_PLAYER_NAME, savePlayerName } from '@/rooms/player-name';
 import { GRAPH_SLUG, OFFLINE_ENABLED, getGameService, isPlayable } from '@/services';
 import { DsaError, toDsaError } from '@/services/errors';
-import { FALLBACK_TIMER_DEFAULTS, type InputMode, type TimerDefaults } from '@/services/types';
+import { FALLBACK_TIMER_DEFAULTS, type BookSection, type InputMode, type TimerDefaults } from '@/services/types';
 import { useTheme } from '@/theme';
+import type { LucideIcon } from '@/components';
 
 /** The modes this screen offers alone; a room (`?ami=1`) offers the two roles instead. */
-const MODES: { mode: GameMode; title: string; hint: string; testID: string }[] = [
-  { mode: 'AI_TIREUR', title: fr.choose.decouvreur, hint: fr.choose.decouvreurHint, testID: 'mode-ai-tireur' },
-  { mode: 'AI_DECOUVREUR', title: fr.choose.tireur, hint: fr.choose.tireurHint, testID: 'mode-ai-decouvreur' },
-  { mode: 'LOCAL', title: fr.choose.local, hint: fr.choose.localHint, testID: 'mode-local' },
+/** The Découvreur looks for the name (eye); the Tireur holds it hidden (eye crossed out). */
+const MODES: { mode: GameMode; title: string; hint: string; testID: string; icon: LucideIcon; accent?: boolean }[] = [
+  { mode: 'AI_TIREUR', title: fr.choose.decouvreur, hint: fr.choose.decouvreurHint, testID: 'mode-ai-tireur', icon: Eye, accent: true },
+  { mode: 'AI_DECOUVREUR', title: fr.choose.tireur, hint: fr.choose.tireurHint, testID: 'mode-ai-decouvreur', icon: EyeOff },
+  { mode: 'LOCAL', title: fr.choose.local, hint: fr.choose.localHint, testID: 'mode-local', icon: Users },
 ];
 
-const ROOM_ROLES: { role: Role; title: string; hint: string; testID: string }[] = [
-  { role: 'TIREUR', title: fr.friend.tireur, hint: fr.friend.tireurHint, testID: 'room-role-tireur' },
-  { role: 'DECOUVREUR', title: fr.friend.decouvreur, hint: fr.friend.decouvreurHint, testID: 'room-role-decouvreur' },
+const ROOM_ROLES: { role: Role; title: string; hint: string; testID: string; icon: LucideIcon; accent?: boolean }[] = [
+  { role: 'TIREUR', title: fr.friend.tireur, hint: fr.friend.tireurHint, testID: 'room-role-tireur', icon: EyeOff },
+  { role: 'DECOUVREUR', title: fr.friend.decouvreur, hint: fr.friend.decouvreurHint, testID: 'room-role-decouvreur', icon: Eye, accent: true },
 ];
 
 function modeParam(value: unknown): GameMode {
@@ -73,6 +85,10 @@ export default function PreparerScreen() {
   const [inputMode, setInputMode] = useState<InputMode>('BUTTONS');
   const [timed, setTimed] = useState(false);
   const [timerDefaults, setTimerDefaults] = useState<TimerDefaults>(FALLBACK_TIMER_DEFAULTS);
+  const [scope, setScope] = useState<string[]>([]);
+  const [sections, setSections] = useState<BookSection[]>([]);
+  const [sectionsLoading, setSectionsLoading] = useState(false);
+  const [scopeOpen, setScopeOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<DsaError | null>(null);
 
@@ -91,6 +107,20 @@ export default function PreparerScreen() {
     };
   }, []);
 
+  /** The sommaire is only read when the player asks for it: it is a whole extra call. */
+  const openScopePicker = () => {
+    setScopeOpen(true);
+    if (sections.length > 0 || sectionsLoading || !isPlayable()) return;
+    setSectionsLoading(true);
+    void getGameService()
+      .listSections(GRAPH_SLUG)
+      .then(setSections)
+      .catch(() => setSections([]))
+      .finally(() => setSectionsLoading(false));
+  };
+
+  const scopeLabels = sections.filter((s) => scope.includes(s.node_id)).map((s) => s.label);
+
   const start = async () => {
     if (starting) return;
     setStarting(true);
@@ -106,9 +136,9 @@ export default function PreparerScreen() {
               mode: 'HUMAN_VS_HUMAN',
               role,
               displayName: displayName || undefined,
-              settings: { input_mode: inputMode, timed },
+              settings: { input_mode: inputMode, timed, scope },
             }
-          : { graphSlug: GRAPH_SLUG, mode, settings: { input_mode: inputMode, timed } },
+          : { graphSlug: GRAPH_SLUG, mode, settings: { input_mode: inputMode, timed, scope } },
       );
       router.replace(`/partie/${sessionId}`);
     } catch (caught) {
@@ -133,6 +163,7 @@ export default function PreparerScreen() {
           ) : null}
           <PrimaryButton
             testID="setup-start"
+            icon={Play}
             label={forRoom ? fr.friend.createRoom : fr.setup.start}
             disabled={starting}
             onPress={() => void start()}
@@ -146,25 +177,23 @@ export default function PreparerScreen() {
         right={<SoundToggle />}
       />
 
-      <View style={{ gap: theme.space.lg, paddingTop: theme.space.sm, paddingBottom: theme.space.lg }}>
+      <View style={{ gap: theme.space.lg, paddingTop: theme.space.xs, paddingBottom: theme.space.lg }}>
         {OFFLINE_ENABLED ? <OfflineBadge /> : null}
-        <AppText variant="display" weight="bold" tight>
+        <AppText variant="display" weight="medium" tight>
           {fr.setup.title}
         </AppText>
 
         {error ? <ErrorBanner message={error.message} onDismiss={() => setError(null)} /> : null}
 
-        <View accessibilityRole="radiogroup" style={{ gap: theme.space.sm }}>
-          <AppText variant="lead" weight="semibold" tone="soft">
-            {forRoom ? fr.friend.roleTitle : fr.setup.roleTitle}
-          </AppText>
+        <View accessibilityRole="radiogroup" accessibilityLabel={forRoom ? fr.friend.roleTitle : fr.setup.roleTitle} style={{ gap: theme.space.xs }}>
           {forRoom
             ? ROOM_ROLES.map((r) => (
                 <ChoiceCard
                   key={r.role}
                   testID={r.testID}
+                  icon={r.icon}
+                  tone={r.accent ? 'accent' : 'brass'}
                   title={r.title}
-                  hint={r.hint}
                   selected={role === r.role}
                   disabled={starting}
                   onPress={() => setRole(r.role)}
@@ -174,8 +203,9 @@ export default function PreparerScreen() {
                 <ChoiceCard
                   key={m.mode}
                   testID={m.testID}
+                  icon={m.icon}
+                  tone={m.accent ? 'accent' : 'brass'}
                   title={m.title}
-                  hint={m.hint}
                   selected={mode === m.mode}
                   disabled={starting}
                   onPress={() => setMode(m.mode)}
@@ -187,7 +217,6 @@ export default function PreparerScreen() {
           <TextField
             testID="player-name"
             label={fr.friend.nameTitle}
-            hint={fr.friend.nameHint}
             placeholder={fr.friend.namePlaceholder}
             value={name}
             onChangeText={setName}
@@ -198,56 +227,80 @@ export default function PreparerScreen() {
           />
         ) : null}
 
-        <View accessibilityRole="radiogroup" style={{ gap: theme.space.sm }}>
-          <AppText variant="lead" weight="semibold" tone="soft">
-            {fr.setup.inputTitle}
-          </AppText>
-          {forRoom ? (
-            <AppText variant="small" tone="faint">
-              {fr.friend.inputChosenByCreator}
-            </AppText>
-          ) : null}
-          <ChoiceCard
-            testID="input-voice"
-            title={fr.setup.voice}
-            hint={fr.setup.voiceHint}
-            selected={inputMode === 'VOICE'}
-            disabled={starting}
-            onPress={() => setInputMode('VOICE')}
-          />
-          <ChoiceCard
-            testID="input-buttons"
-            title={fr.setup.buttons}
-            hint={fr.setup.buttonsHint}
-            selected={inputMode === 'BUTTONS'}
-            disabled={starting}
-            onPress={() => setInputMode('BUTTONS')}
-          />
-        </View>
+        <View style={{ gap: theme.space.xs }}>
+          <View style={{ flexDirection: 'row', gap: theme.space.xs }}>
+            <CheckCard
+              compact
+              testID="input-voice"
+              icon={Mic}
+              title={fr.setup.voice}
+              hint={inputMode === 'VOICE' ? fr.setup.on : fr.setup.off}
+              checked={inputMode === 'VOICE'}
+              disabled={starting}
+              onPress={() => setInputMode((m) => (m === 'VOICE' ? 'BUTTONS' : 'VOICE'))}
+            />
+            <CheckCard
+              compact
+              testID="setup-timer"
+              icon={Clock}
+              title={fr.setup.timer}
+              hint={
+                timed
+                  ? fr.setup.timerShort(fr.timer.duration(timerDefaults.think_seconds), fr.timer.duration(timerDefaults.play_seconds))
+                  : fr.setup.timerNone
+              }
+              checked={timed}
+              disabled={starting}
+              onPress={() => setTimed((on) => !on)}
+            />
+          </View>
 
-        <View style={{ gap: theme.space.sm }}>
-          <AppText variant="lead" weight="semibold" tone="soft">
-            {fr.setup.timerTitle}
-          </AppText>
+          <Pressable
+            testID="scope-part"
+            accessibilityRole="button"
+            accessibilityLabel={scope.length === 0 ? fr.setup.scopeWhole : fr.setup.scopeSummary(scopeLabels)}
+            accessibilityHint={fr.setup.scopeQuestionsUnchanged}
+            disabled={starting}
+            onPress={openScopePicker}
+            style={({ pressed }) => ({
+              minHeight: theme.touch.secondary,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: theme.space.xs,
+              borderRadius: theme.radius.slab,
+              borderWidth: 1,
+              borderColor: theme.colors.line,
+              backgroundColor: pressed ? theme.colors.surface : theme.colors.surfaceRaised,
+              paddingHorizontal: theme.space.sm,
+              paddingVertical: theme.space.xs,
+            })}
+          >
+            <IconTile icon={BookOpen} selected={scope.length > 0} />
+            <AppText variant="small" weight="semibold" numberOfLines={1} style={{ flex: 1 }}>
+              {scope.length === 0 ? fr.setup.scopeWhole : scopeLabels.join(', ') || fr.setup.scopeChoose}
+            </AppText>
+            <ChevronRight size={18} color={theme.colors.inkFaint} />
+          </Pressable>
+
           {forRoom ? (
-            <AppText variant="small" tone="faint">
-              {fr.setup.timerChosenByCreator}
+            <AppText variant="micro" tone="faint">
+              {fr.setup.forBoth}
             </AppText>
           ) : null}
-          <CheckCard
-            testID="setup-timer"
-            title={fr.setup.timer}
-            hint={
-              timed
-                ? fr.setup.timerHint(fr.timer.duration(timerDefaults.think_seconds), fr.timer.duration(timerDefaults.play_seconds))
-                : fr.setup.timerOff
-            }
-            checked={timed}
-            disabled={starting}
-            onPress={() => setTimed((on) => !on)}
-          />
         </View>
       </View>
+
+      <ScopePicker
+        visible={scopeOpen}
+        sections={sections}
+        value={scope}
+        loading={sectionsLoading}
+        onClose={() => setScopeOpen(false)}
+        onConfirm={(next) => {
+          setScope(next);
+          setScopeOpen(false);
+        }}
+      />
     </Screen>
   );
 }

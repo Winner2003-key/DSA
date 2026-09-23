@@ -71,6 +71,14 @@ Rules, so the next session does not pay for your pictures:
   costs a reader about three times as many tokens as a 390×844 one, for the same information.
 - The harness writes a `screens.md` index next to the images. **Describe each screen in words
   in your report.** A later session reads the words, not the pictures.
+- **Then delete the images.** A screenshot is a means, not a deliverable: once you have written
+  down what it told you, the PNG is dead weight in a public repo and a bill for every session
+  that opens it. Commit the **scenario JSON** instead — anyone can regenerate the pictures from
+  it in a minute. (2026-09-23: 140 images, 13 MB, were removed from `reports/` this way; every
+  report already described them.)
+- **Never re-capture a screen an earlier report already describes.** Read that report's screens
+  table. If you need something no table answers, shoot that **one** screen, write down what it
+  told you, and delete it.
 
 ## 5. SQL: verify the path that actually changed
 
@@ -88,8 +96,9 @@ WASM), both installed **in your scratchpad, never in the repo**.
 
 ## 6. What not to do
 
-- Don't read previous sessions' screenshot folders. Read `docs/sessions/CONTEXT.md` and the
-  report's Screens section in words.
+- Don't look for previous sessions' screenshot folders — they no longer exist. Read
+  `docs/sessions/CONTEXT.md` and the report's Screens section in words.
+- Don't keep screenshots after your report describes them, and don't take two of the same thing.
 - Don't read a whole previous report. Read its **§1 Files** table.
 - Don't re-run the full suite after every edit.
 - Don't install browsers, Postgres or Docker into the repo.

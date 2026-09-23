@@ -4,6 +4,7 @@ import type { Role } from '@dsa/core';
 
 import { AppText } from './app-text';
 import { CountdownRing } from './countdown-ring';
+import { Eye, EyeOff, ICON_STROKE } from './icon';
 import { fr } from '@/i18n/fr';
 import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
@@ -65,18 +66,25 @@ export function GameHeader({ game, viewRole }: GameHeaderProps) {
           flex: 1,
           minHeight: theme.touch.icon,
           borderRadius: theme.radius.field,
-          borderWidth: 2,
+          borderWidth: 1,
           borderColor: active ? theme.colors.brass : theme.colors.line,
-          backgroundColor: active ? theme.colors.surfaceRaised : 'transparent',
+          backgroundColor: active ? theme.colors.brassSoft : theme.colors.surfaceRaised,
           paddingHorizontal: theme.space.sm,
           paddingVertical: theme.space.xs,
           alignItems: role === 'TIREUR' ? 'flex-start' : 'flex-end',
           justifyContent: 'center',
         }}
       >
-        <AppText variant="small" weight={active ? 'bold' : 'semibold'} tone={active ? 'ink' : 'soft'} numberOfLines={1}>
-          {fr.roles[role]}
-        </AppText>
+        <View style={{ flexDirection: role === 'TIREUR' ? 'row' : 'row-reverse', alignItems: 'center', gap: 6 }}>
+          {React.createElement(role === 'TIREUR' ? EyeOff : Eye, {
+            size: 16,
+            strokeWidth: ICON_STROKE,
+            color: active ? theme.colors.brass : theme.colors.inkFaint,
+          })}
+          <AppText variant="small" weight={active ? 'bold' : 'semibold'} tone={active ? 'ink' : 'soft'} numberOfLines={1}>
+            {fr.roles[role]}
+          </AppText>
+        </View>
         {who ? (
           <AppText variant="micro" weight="semibold" tone={active ? 'brass' : 'faint'} numberOfLines={1}>
             {who}
@@ -121,6 +129,13 @@ export function GameHeader({ game, viewRole }: GameHeaderProps) {
             {turnText}
           </AppText>
         </View>
+      ) : null}
+      {/* Which part of the book this game draws from. The questions are unchanged,
+          so this is information, not an instruction. */}
+      {state.scope_labels.length > 0 ? (
+        <AppText variant="micro" weight="semibold" tone="faint" testID="scope-summary" numberOfLines={2}>
+          {fr.setup.scopeSummary(state.scope_labels)}
+        </AppText>
       ) : null}
     </View>
   );

@@ -126,6 +126,42 @@ export function derivePosition(ix: GraphIndex, steps: Step[]): Position {
   return replaySteps(ix, steps).position;
 }
 
+// ---------------------------------------------------------------------------
+// "QUESTION" ×N — going back to the question that opened a list (GAME_RULES §4).
+//
+// This is the single definition of what "a level" means; the SQL mirror is
+// dsa_replay / dsa_entering_steps / dsa_rewind_target.
+
+/**
+ * A step **enters a level** when it moves the pair one list deeper: a spine
+ * answer (a DECISION edge always moves), or a child prompt answered OUI.
+ * A child prompt answered NON only walks to the next sibling of the same list.
+ */
+export function entersLevel(prompt: Prompt, answerLabel: string): boolean {
+  if (prompt.kind === 'SPINE') return true;
+  return answerClass(answerLabel) === 'OUI';
+}
+
+/** Indices of the steps that entered a level, in ascending order. */
+export function enteringStepIndices(ix: GraphIndex, steps: Step[]): number[] {
+  const { prompts } = replaySteps(ix, steps);
+  const entering: number[] = [];
+  steps.forEach((step, i) => {
+    if (entersLevel(prompts[i] as Prompt, step.answerLabel)) entering.push(i);
+  });
+  return entering;
+}
+
+/**
+ * How many steps "QUESTION" ×count keeps: the index of the count-th most recent
+ * entering step, so that its own question is the one asked again. With fewer
+ * than `count` entering steps the pair goes back to the very first question (0).
+ */
+export function rewindTarget(ix: GraphIndex, steps: Step[], count: number): number {
+  const entering = enteringStepIndices(ix, steps);
+  return entering[entering.length - count] ?? 0;
+}
+
 /** No prompt and not on a CHARACTER: the Découvreur must go back. */
 export function isDeadEnd(ix: GraphIndex, pos: Position): boolean {
   if (currentPrompt(ix, pos) !== null) return false;

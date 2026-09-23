@@ -143,7 +143,7 @@ describe('the Découvreur conversation', () => {
     const screen = await renderWithProviders(<DecouvreurView game={hook.result.current} />);
     const card = within(screen.getByTestId('dead-end'));
     expect(card.getByText('Plus de question dans cette liste')).toBeTruthy();
-    expect(card.getByText('Revenir à une question')).toBeTruthy();
+    expect(card.getByText('Revenir')).toBeTruthy();
     expect(screen.queryByTestId('next-question')).toBeNull();
     expect(screen.getByTestId('exchange-latest-answer')).toHaveTextContent('NON');
   });

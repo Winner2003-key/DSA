@@ -11,6 +11,7 @@ import { useVoiceCapture } from '@/speech/use-voice-capture';
 import { MIN_RECORDING_MS } from '@/speech/use-voice-turn';
 import { markCalibrationOffered, saveCalibration, useVoiceSettings } from '@/speech/voice-settings';
 import { useTheme } from '@/theme';
+import { Check, Mic, RotateCcw } from '@/components';
 
 /** Two takes of each sound (the brief); the median of two is their mean. */
 export const TAKES_PER_SOUND = 2;
@@ -135,7 +136,7 @@ export function CalibrationPanel({
         tone="warn"
         title={micError === 'PERMISSION_DENIED' ? fr.voice.micDenied : micError === 'FAILED' ? fr.voice.micFailed : fr.voice.micUnavailable}
       >
-        {micError === 'FAILED' ? <SecondaryButton label={fr.app.retry} onPress={() => setMicError(null)} /> : null}
+        {micError === 'FAILED' ? <SecondaryButton icon={RotateCcw} label={fr.app.retry} onPress={() => setMicError(null)} /> : null}
       </NoticeBanner>
     );
   }
@@ -146,7 +147,7 @@ export function CalibrationPanel({
         <AppText variant="body" tone="soft">
           {fr.voice.calibrationIntro}
         </AppText>
-        <PrimaryButton testID="calibration-start" label={fr.voice.calibrateStart} onPress={() => setStep(nextStep(step))} />
+        <PrimaryButton testID="calibration-start" icon={Mic} label={fr.voice.calibrateStart} onPress={() => setStep(nextStep(step))} />
       </View>
     );
   }
@@ -205,7 +206,7 @@ export function CalibrationPanel({
           </AppText>
         ) : null}
       </View>
-      <PrimaryButton testID="calibration-done" label={fr.voice.done} onPress={() => onDone?.()} />
+      <PrimaryButton testID="calibration-done" icon={Check} label={fr.voice.done} onPress={() => onDone?.()} />
       <LinkButton testID="calibration-again" label={fr.voice.calibrateAgain} onPress={restart} />
     </View>
   );
@@ -231,7 +232,7 @@ export function CalibrationOffer({ local = false, onCalibrate }: { local?: boole
   if (local) {
     return (
       <View testID="calibration-offer-local" style={{ gap: theme.space.xxs }}>
-        <SecondaryButton testID="calibrate-for-tireur" label={fr.voice.calibrateForTireur} onPress={onCalibrate} />
+        <SecondaryButton testID="calibrate-for-tireur" icon={Mic} label={fr.voice.calibrateForTireur} onPress={onCalibrate} />
         <AppText variant="small" tone="soft">
           {fr.voice.calibrateForTireurHint}
         </AppText>
@@ -250,6 +251,7 @@ export function CalibrationOffer({ local = false, onCalibrate }: { local?: boole
         />
         <PrimaryButton
           testID="calibration-offer-accept"
+          icon={Mic}
           label={fr.voice.calibrate}
           onPress={() => {
             markCalibrationOffered();

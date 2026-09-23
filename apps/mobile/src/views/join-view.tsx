@@ -10,6 +10,7 @@ import { formatRoomCodeInput, isCompleteRoomCode, parseRoomCode } from '@/rooms/
 import { getGameService, isPlayable } from '@/services';
 import { DsaError, toDsaError } from '@/services/errors';
 import { useTheme } from '@/theme';
+import { LogIn, QrCode } from '@/components';
 
 export interface JoinViewProps {
   /** From a link or a scanned QR code (`/rejoindre/DSA-1234`). */
@@ -112,7 +113,7 @@ export function JoinView({ initialCode = null }: JoinViewProps) {
       />
 
       {canScan ? (
-        <SecondaryButton testID="join-scan" label={fr.join.scan} disabled={joining} onPress={() => setScannerOpen(true)} />
+        <SecondaryButton testID="join-scan" icon={QrCode} label={fr.join.scan} disabled={joining} onPress={() => setScannerOpen(true)} />
       ) : (
         <AppText variant="small" tone="faint" testID="join-scan-unavailable">
           {fr.join.scanUnavailable}
@@ -141,7 +142,7 @@ export function JoinView({ initialCode = null }: JoinViewProps) {
         </View>
       ) : null}
 
-      <PrimaryButton testID="join-submit" label={fr.join.submit} disabled={!complete || joining} onPress={() => void join(code, name)} />
+      <PrimaryButton testID="join-submit" icon={LogIn} label={fr.join.submit} disabled={!complete || joining} onPress={() => void join(code, name)} />
 
       <QrScanner
         visible={scannerOpen}

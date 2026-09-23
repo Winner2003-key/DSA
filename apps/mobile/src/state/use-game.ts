@@ -93,6 +93,12 @@ export interface UseGame {
   clockPhase: GamePhase;
   /** The other device drew another name; cleared as soon as the game starts. */
   otherRedrew: boolean;
+  /**
+   * The Tireur said "QUESTION": the text of the question the pair must go back
+   * to, for the Découvreur's notice. Null unless a rewind just happened; the
+   * Découvreur's own "Revenir à une question" never sets it.
+   */
+  rewoundTo: string | null;
   /** A room (HUMAN_VS_HUMAN) that is still open: it is kept in sync over Realtime. */
   isRoom: boolean;
   /** The push channel, for a room; null otherwise. */
@@ -158,6 +164,7 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   const [guesses, setGuesses] = useState<GuessRecord[]>([]);
   const [outgoing, setOutgoing] = useState<Outgoing | null>(null);
   const [otherRedrew, setOtherRedrew] = useState(false);
+  const [rewoundTo, setRewoundTo] = useState<string | null>(null);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus | null>(null);
   const [channelDown, setChannelDown] = useState(false);
   const [networkDown, setNetworkDown] = useState(false);
@@ -169,6 +176,8 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   const latest = useRef<GameState | null>(null);
   /** A push arrived while an action was in flight: read the state again afterwards. */
   const refreshAfterAction = useRef(false);
+  /** What this device just asked for, so a shorter path can be told apart from a rewind. */
+  const localTruncate = useRef<'REWIND' | 'BACK' | null>(null);
   /** Responses can arrive out of order; only the newest request's state is kept. */
   const requestSeq = useRef(0);
   const acceptedSeq = useRef(0);
@@ -197,6 +206,15 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
         setGuesses((list) => pruneGuesses(list, next.path.length));
       }
     }
+
+    // A shorter path is either this device's "Revenir", or a "QUESTION" from the
+    // Tireur — here or on the other phone. Only the second is worth a notice.
+    if (previous && next.path.length < previous.path.length && localTruncate.current !== 'BACK') {
+      setRewoundTo(next.prompt?.text ?? null);
+    } else if (previous && next.path.length > previous.path.length) {
+      setRewoundTo(null);
+    }
+    localTruncate.current = null;
   }, []);
 
   useEffect(() => {
@@ -464,6 +482,7 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
     countdown,
     clockPhase,
     otherRedrew,
+    rewoundTo,
     isRoom,
     realtimeStatus: isRoom ? realtimeStatus : null,
     connectionLost: isRoom && (channelDown || networkDown),
@@ -488,8 +507,20 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
       (answerLabel: 'OUI' | 'NON') => run((id) => service.confirmGuess(id, answerLabel), true),
       [run, service],
     ),
-    goBack: useCallback((stepIndex: number) => run((id) => service.goBack(id, stepIndex), true), [run, service]),
-    rewind: useCallback((count: 1 | 2 | 3) => run((id) => service.rewind(id, count), true), [run, service]),
+    goBack: useCallback(
+      (stepIndex: number) => {
+        localTruncate.current = 'BACK';
+        return run((id) => service.goBack(id, stepIndex), true);
+      },
+      [run, service],
+    ),
+    rewind: useCallback(
+      (count: 1 | 2 | 3) => {
+        localTruncate.current = 'REWIND';
+        return run((id) => service.rewind(id, count), true);
+      },
+      [run, service],
+    ),
     abandon: useCallback(() => run((id) => service.abandon(id), true), [run, service]),
   };
 }

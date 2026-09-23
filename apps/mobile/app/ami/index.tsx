@@ -6,6 +6,7 @@ import { AppText, NoticeBanner, OfflineBadge, PrimaryButton, Screen, SecondaryBu
 import { fr } from '@/i18n/fr';
 import { OFFLINE_ENABLED } from '@/services';
 import { useTheme } from '@/theme';
+import { LogIn, Play } from '@/components';
 
 /** "Jouer avec un ami": two phones, one room. Create it, or join it with its code. */
 export default function AmiScreen() {
@@ -29,6 +30,7 @@ export default function AmiScreen() {
         <View style={{ gap: theme.space.sm }}>
           <PrimaryButton
             testID="friend-create"
+            icon={Play}
             label={fr.friend.create}
             hint={fr.friend.createHint}
             disabled={OFFLINE_ENABLED}
@@ -36,6 +38,7 @@ export default function AmiScreen() {
           />
           <SecondaryButton
             testID="friend-join"
+            icon={LogIn}
             label={fr.friend.join}
             hint={fr.friend.joinHint}
             disabled={OFFLINE_ENABLED}

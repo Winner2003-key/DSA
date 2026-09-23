@@ -53,7 +53,7 @@ function buildTheme(colors: Palette, fontsReady: boolean): Theme {
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: buildTheme(darkPalette, false),
+  theme: buildTheme(lightPalette, false),
   preference: 'system',
   setPreference: () => undefined,
 });
@@ -80,7 +80,7 @@ export function ThemeProvider({ children, fontsReady }: { children: React.ReactN
   }, []);
 
   const value = useMemo<ThemeContextValue>(() => {
-    const scheme = preference === 'system' ? (system ?? 'dark') : preference;
+    const scheme = preference === 'system' ? (system ?? 'light') : preference;
     return {
       theme: buildTheme(scheme === 'light' ? lightPalette : darkPalette, fontsReady),
       preference,

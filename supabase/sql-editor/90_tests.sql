@@ -14,6 +14,8 @@
 -- homonyms, path fields, stats, session settings). Block 14 covers 0008
 -- (rooms: Tireur ready, stale-room cleanup, rematch). Blocks 15-17 cover 0009
 -- (timed games, the name change before the start, and the book's own path).
+-- Blocks 7-8d and 18 cover 0010 (the "QUESTION" rule, and practising one part
+-- of the book).
 --
 -- Users are simulated like PostgREST does it: role `authenticated` plus
 -- request.jwt.claims. The secret of a session is forced as the postgres role
@@ -42,6 +44,10 @@ begin
      or to_regprocedure('public.dsa_redraw_secret(uuid)') is null
      or to_regprocedure('public.dsa_get_solution_path(uuid)') is null then
     raise exception 'DSA TEST SETUP: this project predates the timed-games update; run 06_timer.sql (or the new 00_all_migrations.sql) first';
+  end if;
+  if to_regprocedure('public.dsa_list_sections(text)') is null
+     or to_regprocedure('public.dsa_normalize_settings(jsonb,uuid)') is null then
+    raise exception 'DSA TEST SETUP: this project predates the rules-and-practice update; run 07_rules_scope.sql (or the new 00_all_migrations.sql) first';
   end if;
   if not exists (select 1 from public.graphs where slug = 'mini') then
     raise exception 'DSA TEST SETUP: run 01_seed_mini_graph.sql first';
@@ -549,8 +555,10 @@ $$;
 
 
 -- =============================================================================
--- 7. Tireur "QUESTION" x1
+-- 7. Tireur "QUESTION" x1 — back to the question that opened the list
 -- =============================================================================
+-- A wrong NON on a sibling never entered a level, so x1 re-opens the list
+-- itself (PENTATEUQUE), not the previous question. GAME_RULES.md §4.
 do $$
 declare
   c  constant text := '7 Tireur QUESTION x1';
@@ -567,9 +575,11 @@ begin
   perform dsa_test.eq(c, 'prompt after the mistake', dsa_test.prompt(s), 'LIE A ABRAHAM');
 
   st := public.dsa_rewind(s, 1);
-  perform dsa_test.eq(c, 'prompt after rewind(1)', st->'prompt'->>'text', 'LIE A ADAM');
-  perform dsa_test.eq(c, 'path length after rewind(1)', jsonb_array_length(st->'path')::text, '3');
+  perform dsa_test.eq(c, 'prompt after rewind(1)', st->'prompt'->>'text', 'PENTATEUQUE');
+  perform dsa_test.eq(c, 'path length after rewind(1)', jsonb_array_length(st->'path')::text, '2');
 
+  -- The pair asks down again and gets it right this time.
+  perform dsa_test.play(c, s, 'PENTATEUQUE', 'OUI');
   perform dsa_test.play(c, s, 'LIE A ADAM', 'OUI');
   perform dsa_test.eq(c, 'prompt', dsa_test.prompt(s), 'CLASSE 1');
   perform dsa_test.play(c, s, 'CLASSE 1', 'OUI');
@@ -583,11 +593,11 @@ begin
     'ANCIEN=OUI > HOMME=OUI > PENTATEUQUE=OUI > LIE A ADAM=OUI > CLASSE 1=OUI > Premier homme=NON > Le meurtrier=OUI');
   perform dsa_test.check(c, dsa_test.path_str(rp->'path') not like '%LIE A ADAM=NON%', 'the undone NON must not be revealed');
   -- stats count every move, undone ones included (like packages/core stats())
-  perform dsa_test.eq_json(c, 'stats (0006)', dsa_test.core_stats(rp->'stats'), '{"non": 2, "backs": 0, "rewinds": 1, "questions": 8}');
+  perform dsa_test.eq_json(c, 'stats (0006)', dsa_test.core_stats(rp->'stats'), '{"non": 2, "backs": 0, "rewinds": 1, "questions": 9}');
 
   perform dsa_test.as_postgres();
   perform dsa_test.eq(c, 'undone ANSWER moves',
-    (select count(*)::text from public.game_moves m where m.game_session_id = s and m.move_type = 'ANSWER' and m.is_undone), '1');
+    (select count(*)::text from public.game_moves m where m.game_session_id = s and m.move_type = 'ANSWER' and m.is_undone), '2');
   perform dsa_test.eq(c, 'REWIND moves',
     (select count(*)::text from public.game_moves m where m.game_session_id = s and m.move_type = 'REWIND'), '1');
 end;
@@ -595,11 +605,13 @@ $$;
 
 
 -- =============================================================================
--- 8. Tireur "QUESTION" x2
+-- 7b. QUESTION x1 from inside a list re-asks the question that opened it
 -- =============================================================================
+-- The owner's first example: "1ere classe ?" OUI, then NON on the names inside.
+-- x1 re-asks CLASSE 1 itself; NON then moves on to the next sibling.
 do $$
 declare
-  c  constant text := '8 Tireur QUESTION x2';
+  c  constant text := '7b QUESTION x1 inside a list';
   u  uuid := dsa_test.u(1);
   s  uuid;
   st jsonb;
@@ -608,16 +620,159 @@ begin
   perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
   perform dsa_test.play(c, s, 'HOMME', 'OUI');
   perform dsa_test.play(c, s, 'PENTATEUQUE', 'OUI');
+  perform dsa_test.play(c, s, 'LIE A ADAM', 'OUI');
+  perform dsa_test.play(c, s, 'CLASSE 1', 'OUI');
+  perform dsa_test.play(c, s, 'Premier homme', 'NON');
+  perform dsa_test.play(c, s, 'Le meurtrier', 'NON');
+
+  st := public.dsa_get_state(s);
+  perform dsa_test.check(c, st->'prompt' = 'null'::jsonb, 'past the last child of CLASSE 1');
+
+  st := public.dsa_rewind(s, 1);
+  perform dsa_test.eq(c, 'prompt after rewind(1)', st->'prompt'->>'text', 'CLASSE 1');
+  perform dsa_test.eq(c, 'path after rewind(1)', dsa_test.path_str(st->'path'),
+    'ANCIEN=OUI > HOMME=OUI > PENTATEUQUE=OUI > LIE A ADAM=OUI');
+
+  -- NON on CLASSE 1 now walks to the next sibling of the list above it.
+  perform dsa_test.play(c, s, 'CLASSE 1', 'NON');
+  st := public.dsa_get_state(s);
+  perform dsa_test.check(c, st->'prompt' = 'null'::jsonb, 'CLASSE 1 is the only child of LIE A ADAM');
+
+  -- And one more level up.
+  st := public.dsa_rewind(s, 1);
+  perform dsa_test.eq(c, 'prompt after the second rewind(1)', st->'prompt'->>'text', 'LIE A ADAM');
+end;
+$$;
+
+
+-- =============================================================================
+-- 8. Tireur "QUESTION" x2 and x3 go one list higher each time
+-- =============================================================================
+do $$
+declare
+  c  constant text := '8 Tireur QUESTION x2';
+  u  uuid := dsa_test.u(1);
+  s  uuid;
+  s3 uuid;
+  st jsonb;
+begin
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+  perform dsa_test.play(c, s, 'HOMME', 'OUI');
+  perform dsa_test.play(c, s, 'PENTATEUQUE', 'OUI');
   perform dsa_test.play(c, s, 'LIE A ADAM', 'NON');
   st := public.dsa_rewind(s, 2);
-  perform dsa_test.eq(c, 'prompt after rewind(2)', st->'prompt'->>'text', 'PENTATEUQUE');
-  perform dsa_test.eq(c, 'path after rewind(2)', dsa_test.path_str(st->'path'), 'ANCIEN=OUI > HOMME=OUI');
+  perform dsa_test.eq(c, 'prompt after rewind(2)', st->'prompt'->>'text', 'HOMME');
+  perform dsa_test.eq(c, 'path after rewind(2)', dsa_test.path_str(st->'path'), 'ANCIEN=OUI');
+
+  -- x3 from the same mistake goes to the very first question.
+  s3 := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+  perform dsa_test.play(c, s3, 'ANCIEN', 'OUI');
+  perform dsa_test.play(c, s3, 'HOMME', 'OUI');
+  perform dsa_test.play(c, s3, 'PENTATEUQUE', 'OUI');
+  perform dsa_test.play(c, s3, 'LIE A ADAM', 'NON');
+  st := public.dsa_rewind(s3, 3);
+  perform dsa_test.eq(c, 'prompt after rewind(3)', st->'prompt'->>'text', 'ANCIEN');
+  perform dsa_test.eq(c, 'path after rewind(3)', jsonb_array_length(st->'path')::text, '0');
 
   -- rewinding while a question waits for its answer also drops that question
   perform public.dsa_ask(s);
   st := public.dsa_rewind(s, 1);
-  perform dsa_test.eq(c, 'prompt after rewind(1) during ANSWER', st->'prompt'->>'text', 'HOMME');
+  perform dsa_test.eq(c, 'prompt after rewind(1) during ANSWER', st->'prompt'->>'text', 'ANCIEN');
   perform dsa_test.eq(c, 'awaiting after rewind during ANSWER', st->>'awaiting', 'QUESTION');
+end;
+$$;
+
+
+-- =============================================================================
+-- 8b. Right after a spine answer, x1 re-asks that spine question
+-- =============================================================================
+-- This is the one case the rule leaves unchanged from the old "undo N answers".
+do $$
+declare
+  c  constant text := '8b QUESTION x1 after a spine answer';
+  u  uuid := dsa_test.u(1);
+  s  uuid;
+  st jsonb;
+begin
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+  perform dsa_test.play(c, s, 'HOMME', 'OUI');
+  perform dsa_test.play(c, s, 'PENTATEUQUE', 'OUI');
+  perform dsa_test.eq(c, 'prompt', dsa_test.prompt(s), 'LIE A ADAM');
+  st := public.dsa_rewind(s, 1);
+  perform dsa_test.eq(c, 'prompt after rewind(1)', st->'prompt'->>'text', 'PENTATEUQUE');
+  perform dsa_test.eq(c, 'path after rewind(1)', dsa_test.path_str(st->'path'), 'ANCIEN=OUI > HOMME=OUI');
+end;
+$$;
+
+
+-- =============================================================================
+-- 8c. Fewer levels than asked for: back to the very first question
+-- =============================================================================
+do $$
+declare
+  c  constant text := '8c QUESTION beyond the first level';
+  u  uuid := dsa_test.u(1);
+  s  uuid;
+  d  uuid;
+  st jsonb;
+  n  integer;
+begin
+  -- One answered step: x1, x2 and x3 all land on the very first question.
+  for n in 1..3 loop
+    s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+    perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+    st := public.dsa_rewind(s, n);
+    perform dsa_test.eq(c, format('prompt after rewind(%s)', n), st->'prompt'->>'text', 'ANCIEN');
+    perform dsa_test.eq(c, format('path after rewind(%s)', n), jsonb_array_length(st->'path')::text, '0');
+  end loop;
+
+  -- Two NON inside the same list are not levels either, so x3 reaches ANCIEN.
+  d := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+  perform dsa_test.play(c, d, 'ANCIEN', 'OUI');
+  perform dsa_test.play(c, d, 'HOMME', 'OUI');
+  perform dsa_test.play(c, d, 'PENTATEUQUE', 'OUI');
+  perform dsa_test.play(c, d, 'LIE A ADAM', 'NON');
+  perform dsa_test.play(c, d, 'LIE A ABRAHAM', 'NON');
+  st := public.dsa_rewind(d, 3);
+  perform dsa_test.eq(c, 'prompt after rewind(3) with two NON', st->'prompt'->>'text', 'ANCIEN');
+
+  -- An empty path is still DSA_INVALID_REWIND, and so is N outside 1..3.
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+  perform dsa_test.expect_error(c, format('select public.dsa_rewind(%L, 1)', s), 'DSA_INVALID_REWIND');
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+  perform dsa_test.expect_error(c, format('select public.dsa_rewind(%L, 0)', s), 'DSA_INVALID_REWIND');
+  perform dsa_test.expect_error(c, format('select public.dsa_rewind(%L, 4)', s), 'DSA_INVALID_REWIND');
+end;
+$$;
+
+
+-- =============================================================================
+-- 8d. A rewind after a wrong name call
+-- =============================================================================
+-- A refused name is not an answered step, so it changes no level.
+do $$
+declare
+  c  constant text := '8d QUESTION after a wrong name';
+  u  uuid := dsa_test.u(1);
+  s  uuid;
+  st jsonb;
+begin
+  s := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
+  perform dsa_test.play(c, s, 'ANCIEN', 'OUI');
+  perform dsa_test.play(c, s, 'HOMME', 'OUI');
+  perform dsa_test.play(c, s, 'PENTATEUQUE', 'OUI');
+  perform dsa_test.play(c, s, 'LIE A ADAM', 'OUI');
+  perform public.dsa_guess(s, 'ADAM');
+  perform public.dsa_confirm_guess(s, 'NON');
+  perform dsa_test.eq(c, 'prompt after the refused name', dsa_test.prompt(s), 'CLASSE 1');
+
+  st := public.dsa_rewind(s, 1);
+  perform dsa_test.eq(c, 'prompt after rewind(1)', st->'prompt'->>'text', 'LIE A ADAM');
+  perform dsa_test.eq(c, 'pending_guess is cleared', coalesce(st->>'pending_guess', 'null'), 'null');
+  perform dsa_test.eq_json(c, 'stats (0006)', dsa_test.core_stats(public.dsa_get_revealed_path(s)->'stats'),
+    '{"non": 0, "backs": 0, "rewinds": 1, "questions": 4}');
 end;
 $$;
 
@@ -726,12 +881,16 @@ begin
   perform dsa_test.expect_error(c, format('select public.dsa_go_back(%L, 4)', s), 'DSA_INVALID_STEP');
   perform dsa_test.expect_error(c, format('select public.dsa_go_back(%L, -1)', s), 'DSA_INVALID_STEP');
 
-  -- more steps than exist
+  -- more levels than exist is NOT an error since 0010: it goes back to the start
   s2 := dsa_test.new_session(u, 'LOCAL', null, 'P/lie-a-adam/classe-1/le-meurtrier--cain');
   perform dsa_test.play(c, s2, 'ANCIEN', 'OUI');
-  perform dsa_test.expect_error(c, format('select public.dsa_rewind(%L, 2)', s2), 'DSA_INVALID_REWIND');
+  st := public.dsa_rewind(s2, 2);
+  perform dsa_test.eq(c, 'prompt after rewind(2) with one level', st->'prompt'->>'text', 'ANCIEN');
+  perform dsa_test.play(c, s2, 'ANCIEN', 'OUI');
   st := public.dsa_rewind(s2, 1);
   perform dsa_test.eq(c, 'prompt after rewind to the start', st->'prompt'->>'text', 'ANCIEN');
+  -- but an empty path still is
+  perform dsa_test.expect_error(c, format('select public.dsa_rewind(%L, 1)', s2), 'DSA_INVALID_REWIND');
 
   -- empty name, bad graph / mode / role
   perform dsa_test.expect_error(c, format('select public.dsa_guess(%L, %L)', s2, ' - '), 'DSA_INVALID_NAME');
@@ -1066,7 +1225,8 @@ begin
   perform dsa_test.expect_error(c, format('select public.dsa_has_homonyms(%L)', v_secret), '42501');
   perform dsa_test.expect_error(c, format('select public.dsa_game_stats(%L)', s), '42501');
   perform dsa_test.expect_error(c, format('select public.dsa_path_json(%L)', s), '42501');
-  perform dsa_test.expect_error(c, $q$select public.dsa_normalize_settings('{}')$q$, '42501');
+  perform dsa_test.expect_error(c,
+    $q$select public.dsa_normalize_settings('{}', (select g.id from public.graphs g where g.slug = 'mini'))$q$, '42501');
 
   perform dsa_test.as_user(t);
   select count(*) into v_n from public.game_secrets gs where gs.game_session_id = s;
@@ -2247,6 +2407,261 @@ begin
     'anon must not execute dsa_get_solution_path');
 end;
 $$;
+
+-- =============================================================================
+-- 18. Practising one part of the book: scope (0010)
+-- =============================================================================
+do $$
+declare
+  c         constant text := '18 scope';
+  u         uuid := dsa_test.u(1);
+  t         uuid := dsa_test.u(2);
+  adm       uuid := dsa_test.u(4);
+  s         uuid;
+  st        jsonb;
+  v_graph   uuid;
+  v_adam    uuid;
+  v_classe1 uuid;
+  v_evang   uuid;
+  v_nouveau uuid;
+  v_esdras  uuid;
+  v_secret  uuid;
+  v_name    text;
+  v_n       integer;
+  v_rows    integer;
+  v_leak    integer;
+begin
+  perform dsa_test.as_postgres();
+  v_graph := (select g.id from public.graphs g where g.slug = 'mini');
+  v_adam    := dsa_test.nid('P/lie-a-adam');
+  v_classe1 := dsa_test.nid('P/lie-a-adam/classe-1');
+  v_evang   := dsa_test.nid('ancien[non]/homme[oui]/les-evangiles');
+  v_nouveau := dsa_test.nid('ancien[non]/homme');
+  v_esdras  := dsa_test.nid('ancien[oui]/homme[je-ne-sais-pas]/les-3-derniers');
+
+  ---- dsa_list_sections: the picker's tree, with counts
+  perform dsa_test.as_user(u);
+  select count(*)::integer into v_rows from public.dsa_list_sections('mini');
+  perform dsa_test.check(c, v_rows > 0, 'dsa_list_sections must return the sections');
+
+  perform dsa_test.eq(c, 'names under the root',
+    (select l.characters::text from public.dsa_list_sections('mini') l where l.parent_id is null), '13');
+  perform dsa_test.eq(c, 'root depth',
+    (select l.depth::text from public.dsa_list_sections('mini') l where l.parent_id is null), '0');
+  perform dsa_test.eq(c, 'exactly one root',
+    (select count(*)::text from public.dsa_list_sections('mini') l where l.parent_id is null), '1');
+  perform dsa_test.eq(c, 'names under LIE A ADAM',
+    (select l.characters::text from public.dsa_list_sections('mini') l where l.node_id = v_adam), '2');
+  perform dsa_test.eq(c, 'names under LES EVANGILES',
+    (select l.characters::text from public.dsa_list_sections('mini') l where l.node_id = v_evang), '3');
+  perform dsa_test.eq(c, 'names under LIE A ABRAHAM',
+    (select l.characters::text from public.dsa_list_sections('mini') l where l.node_id = dsa_test.nid('P/lie-a-abraham')), '4');
+
+  ---- it exposes NO leaf, no name and no clue
+  perform dsa_test.eq(c, 'no CHARACTER node is listed',
+    (select count(*)::text
+     from public.dsa_list_sections('mini') l
+     join public.graph_nodes n on n.id = l.node_id
+     where n.node_type = 'CHARACTER'), '0');
+
+  select count(*)::integer into v_leak
+  from public.dsa_list_sections('mini') l
+  where exists (
+    select 1 from public.graph_nodes n
+    where n.graph_id = v_graph
+      and n.node_type = 'CHARACTER'
+      and (l.label = n.label or l.label = coalesce(n.question, '\x01'))
+  );
+  perform dsa_test.eq(c, 'no name and no clue appears as a section label', v_leak::text, '0');
+
+  -- Every parent is itself a section, one level up.
+  perform dsa_test.eq(c, 'the tree hangs together',
+    (select count(*)::text
+     from public.dsa_list_sections('mini') l
+     where l.parent_id is not null
+       and not exists (
+         select 1 from public.dsa_list_sections('mini') p
+         where p.node_id = l.parent_id and p.depth = l.depth - 1
+       )), '0');
+
+  ---- the secret is drawn INSIDE the scope, over many draws
+  for v_n in 1..40 loop
+    s := dsa_test.new_session(u, 'LOCAL', null, null, true,
+      jsonb_build_object('scope', jsonb_build_array(v_adam)));
+    perform dsa_test.as_postgres();
+    select gs.secret_node_id into v_secret from public.game_secrets gs where gs.game_session_id = s;
+    select n.label into v_name from public.graph_nodes n where n.id = v_secret;
+    if v_name not in ('ADAM', 'CAÏN') then
+      perform dsa_test.fail(c, format('draw %s left the scope: %s', v_n, v_name));
+    end if;
+    perform dsa_test.as_user(u);
+  end loop;
+
+  ---- a scope with a single name always draws that name
+  for v_n in 1..10 loop
+    s := dsa_test.new_session(u, 'LOCAL', null, null, true,
+      jsonb_build_object('scope', jsonb_build_array(v_esdras)));
+    perform dsa_test.as_postgres();
+    select n.label into v_name
+    from public.game_secrets gs join public.graph_nodes n on n.id = gs.secret_node_id
+    where gs.game_session_id = s;
+    perform dsa_test.eq(c, 'single-name scope', v_name, 'ESDRAS');
+    perform dsa_test.as_user(u);
+  end loop;
+
+  ---- several sections make one union, and a spine question is a section too
+  for v_n in 1..20 loop
+    s := dsa_test.new_session(u, 'LOCAL', null, null, true,
+      jsonb_build_object('scope', jsonb_build_array(v_classe1, v_nouveau)));
+    perform dsa_test.as_postgres();
+    select n.label into v_name
+    from public.game_secrets gs join public.graph_nodes n on n.id = gs.secret_node_id
+    where gs.game_session_id = s;
+    if v_name not in ('ADAM', 'CAÏN', 'JESUS-CHRIST', 'JACQUES') then
+      perform dsa_test.fail(c, format('union draw %s left the scope: %s', v_n, v_name));
+    end if;
+    perform dsa_test.as_user(u);
+  end loop;
+
+  ---- the questions still start at the beginning
+  s := dsa_test.new_session(u, 'LOCAL', null, null, true,
+    jsonb_build_object('scope', jsonb_build_array(v_evang)));
+  perform dsa_test.eq(c, 'a scoped game still starts at ANCIEN', dsa_test.prompt(s), 'ANCIEN');
+
+  ---- the state carries the scope and its labels
+  st := public.dsa_get_state(s);
+  perform dsa_test.eq_json(c, 'settings.scope', st->'settings'->'scope', to_jsonb(array[v_evang]));
+  perform dsa_test.eq_json(c, 'scope_labels', st->'scope_labels', '["LES EVANGILES"]'::jsonb);
+
+  ---- the whole book leaves settings exactly as they were before 0010
+  s := dsa_test.new_session(u, 'LOCAL', null, null, true, '{}'::jsonb);
+  st := public.dsa_get_state(s);
+  perform dsa_test.check(c, not (st->'settings' ? 'scope'), 'the whole book stores no scope key');
+  perform dsa_test.eq_json(c, 'scope_labels without a scope', st->'scope_labels', '[]'::jsonb);
+  s := dsa_test.new_session(u, 'LOCAL', null, null, true, jsonb_build_object('scope', '[]'::jsonb));
+  perform dsa_test.check(c, not (public.dsa_get_state(s)->'settings' ? 'scope'), 'an empty scope is the whole book');
+
+  ---- invalid scopes
+  perform dsa_test.as_user(u);
+  -- a CHARACTER node is not a section
+  perform dsa_test.expect_error(c,
+    format('select public.dsa_create_session(%L, %L, null, %L, %L::jsonb)', 'mini', 'LOCAL', 'Test',
+      jsonb_build_object('scope', jsonb_build_array(dsa_test.nid('P/lie-a-adam/classe-1/le-meurtrier--cain')))::text),
+    'DSA_INVALID_SETTINGS');
+  -- an id that is in no graph at all
+  perform dsa_test.expect_error(c,
+    format('select public.dsa_create_session(%L, %L, null, %L, %L::jsonb)', 'mini', 'LOCAL', 'Test',
+      '{"scope": ["6f1f3f7e-0d7b-4f6c-9d7e-5a0c2b1d4e9a"]}'),
+    'DSA_INVALID_SETTINGS');
+  -- not an array
+  perform dsa_test.expect_error(c,
+    format('select public.dsa_create_session(%L, %L, null, %L, %L::jsonb)', 'mini', 'LOCAL', 'Test',
+      '{"scope": "les-evangiles"}'),
+    'DSA_INVALID_SETTINGS');
+  -- not even a uuid
+  perform dsa_test.expect_error(c,
+    format('select public.dsa_create_session(%L, %L, null, %L, %L::jsonb)', 'mini', 'LOCAL', 'Test',
+      '{"scope": ["not-a-uuid"]}'),
+    'DSA_INVALID_SETTINGS');
+  -- an unknown key is still refused
+  perform dsa_test.expect_error(c,
+    format('select public.dsa_create_session(%L, %L, null, %L, %L::jsonb)', 'mini', 'LOCAL', 'Test',
+      '{"scope": [], "cheat": true}'),
+    'DSA_INVALID_SETTINGS');
+
+  ---- a section with no playable name is DSA_NO_PLAYABLE_SECRET, not INVALID_SETTINGS
+  perform dsa_test.as_postgres();
+  update public.graph_nodes n set review_status = 'REJECTED'
+  where n.graph_id = v_graph
+    and n.node_type = 'CHARACTER'
+    and n.label in ('ADAM', 'CAÏN');
+  perform dsa_test.as_user(u);
+  perform dsa_test.expect_error(c,
+    format('select public.dsa_create_session(%L, %L, null, %L, %L::jsonb)', 'mini', 'LOCAL', 'Test',
+      jsonb_build_object('scope', jsonb_build_array(v_classe1))::text),
+    'DSA_NO_PLAYABLE_SECRET');
+  -- and the refusal comes from the settings validation itself, before any game
+  -- is made: that is the check the setup screen relies on.
+  perform dsa_test.as_postgres();
+  perform dsa_test.expect_error(c,
+    format('select public.dsa_normalize_settings(%L::jsonb, %L::uuid)',
+      jsonb_build_object('scope', jsonb_build_array(v_classe1))::text, v_graph),
+    'DSA_NO_PLAYABLE_SECRET');
+  update public.graph_nodes n set review_status = 'APPROVED'
+  where n.graph_id = v_graph
+    and n.node_type = 'CHARACTER'
+    and n.label in ('ADAM', 'CAÏN');
+  perform dsa_test.eq(c, 'the graph is restored',
+    (select count(*)::text from public.dsa_playable_characters(v_graph)), '13');
+
+  ---- a name change stays inside the scope
+  perform dsa_test.as_user(t);
+  s := dsa_test.new_session(t, 'LOCAL', null, null, false,
+    jsonb_build_object('scope', jsonb_build_array(v_adam)));
+  perform public.dsa_redraw_secret(s);
+  perform dsa_test.as_postgres();
+  select n.label into v_name
+  from public.game_secrets gs join public.graph_nodes n on n.id = gs.secret_node_id
+  where gs.game_session_id = s;
+  perform dsa_test.check(c, v_name in ('ADAM', 'CAÏN'), 'a name change must stay inside the scope, got ' || v_name);
+  perform dsa_test.as_user(t);
+  -- LIE A ADAM holds two names, so the second change has nothing left to draw.
+  perform dsa_test.expect_error(c, format('select public.dsa_redraw_secret(%L)', s), 'DSA_NO_PLAYABLE_SECRET');
+
+  ---- a rematch keeps the scope
+  declare
+    r      record;
+    s2     uuid;
+    v_code text;
+    tir    uuid := dsa_test.u(1);
+    dec    uuid := dsa_test.u(2);
+  begin
+    perform dsa_test.as_user(tir);
+    select c2.session_id, c2.room_code into s, v_code
+    from public.dsa_create_session('mini', 'HUMAN_VS_HUMAN', 'TIREUR', 'T',
+      jsonb_build_object('input_mode', 'VOICE', 'scope', jsonb_build_array(v_evang))) c2;
+    perform dsa_test.as_user(dec);
+    perform public.dsa_join_session(v_code, 'D');
+    perform dsa_test.as_user(tir);
+    perform public.dsa_abandon(s);
+    select * into r from public.dsa_rematch(s, false);
+    s2 := r.session_id;
+    st := public.dsa_get_state(s2);
+    perform dsa_test.eq_json(c, 'the rematch keeps the scope', st->'settings'->'scope', to_jsonb(array[v_evang]));
+    perform dsa_test.eq(c, 'the rematch keeps the input mode', st->'settings'->>'input_mode', 'VOICE');
+    perform dsa_test.as_postgres();
+    select n.label into v_name
+    from public.game_secrets gs join public.graph_nodes n on n.id = gs.secret_node_id
+    where gs.game_session_id = s2;
+    perform dsa_test.check(c, v_name in ('JESUS-CHRIST', 'JACQUES'), 'the rematch draws inside the scope, got ' || v_name);
+  end;
+
+  ---- privileges
+  perform dsa_test.as_postgres();
+  perform dsa_test.check(c, has_function_privilege('authenticated', 'public.dsa_list_sections(text)', 'execute'),
+    'authenticated must be able to execute dsa_list_sections');
+  perform dsa_test.check(c, not has_function_privilege('anon', 'public.dsa_list_sections(text)', 'execute'),
+    'anon must not execute dsa_list_sections');
+  for v_name in
+    select x from unnest(array[
+      'public.dsa_graph_tree(uuid)',
+      'public.dsa_replay(uuid)',
+      'public.dsa_rewind_target(uuid,integer)',
+      'public.dsa_sections(uuid)',
+      'public.dsa_scope_characters(uuid,uuid[])',
+      'public.dsa_settings_scope(jsonb)',
+      'public.dsa_normalize_settings(jsonb,uuid)'
+    ]) x
+  loop
+    perform dsa_test.check(c, not has_function_privilege('authenticated', v_name, 'execute'),
+      v_name || ' is internal: authenticated must not execute it');
+    perform dsa_test.check(c, not has_function_privilege('anon', v_name, 'execute'),
+      v_name || ' is internal: anon must not execute it');
+  end loop;
+  perform dsa_test.as_user(u);
+end;
+$$;
+
 
 -- =============================================================================
 -- All blocks passed: remember it across the rollback with a session-level

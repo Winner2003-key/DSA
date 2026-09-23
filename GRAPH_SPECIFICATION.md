@@ -115,13 +115,24 @@ A game position is derived by **replaying the list of answered steps** from STAR
   
   The correct confirmation is `normalize(name) === normalize(secret.label)`. Normalization is case-insensitive and ignores accents, hyphens and spaces. Aliases do **not** count, because the card shows one exact name.
 - **Découvreur goes back to step k:** the answered steps are truncated to their first k entries, and the position is re-derived. That question is asked again.
-- **Tireur says "QUESTION" ×N (N = 1..3):** the last N answered steps are removed, which is the same as going back to step `len − N`.
+- **Tireur says "QUESTION" ×N (N = 1..3):** the pair goes back to the question that **opened the list they are in**, N lists up (GAME_RULES §4). A step **enters a level** when it is a SPINE answer (a DECISION edge always moves) or a child prompt answered `OUI`; a child prompt answered `NON` does **not**, since it only advances the cursor. The N-th most recent entering step is found, that step and every step after it are undone, and its own question becomes the prompt again. With fewer than N entering steps the pair goes back to the very first question (step 0) — not an error. `INVALID_REWIND` is raised only for N outside 1..3 or an empty path.
+  - The single definition lives in `packages/core/src/rules.ts` (`entersLevel`, `enteringStepIndices`, `rewindTarget`), mirrored in SQL by `dsa_replay` / `dsa_rewind_target`.
 - **Correct answer, used by the AI Tireur and for statistics:**
   - at a QUESTION node, the class of the outgoing edge whose target is an ancestor-or-self of the secret;
   - for a child prompt, `OUI` if the child is an ancestor-or-self of the secret, otherwise `NON`.
 - **Human Tireur answers are not forced to be correct** (GAME_RULES §5). They must only be one of the allowed answer classes.
 
 Only nodes and edges with `review_status = 'APPROVED'` are playable. Secret candidates are CHARACTER nodes reachable from START through approved edges.
+
+### Practising one part of the book (scope)
+
+`game_sessions.settings.scope` is an array of **section node ids**: any approved non-CHARACTER node reachable from START (the spine questions ANCIEN, HOMME… are sections too). Absent or empty means the whole book.
+
+- A scope restricts **only which name is drawn**. The traversal is untouched: the questions still start at the first one, so the pair walks the whole book down to that part and keeps learning the path. The end screen's book path (§9) shows it.
+- The secret is drawn among the playable CHARACTER nodes **underneath** the chosen sections (their union, deduplicated). `dsa_redraw_secret` stays inside it, and `dsa_rematch` keeps it.
+- Validation (`dsa_normalize_settings`): every id must be a section of that graph, and the union must hold at least one playable name — otherwise `DSA_INVALID_SETTINGS`, or `DSA_NO_PLAYABLE_SECRET` when the union is empty.
+- `dsa_list_sections(p_graph_slug)` feeds the picker: `node_id`, `label`, `parent_id`, `depth` and `characters` (names underneath), in book order. It returns **no name, no clue and no leaf** — no more than the book's table of contents. Granted to `authenticated`.
+- The single definition lives in `packages/core/src/scope.ts` (`listSections`, `scopeCharacters`, `checkScope`), mirrored in SQL by `dsa_sections` / `dsa_scope_characters`.
 
 ### Character card description
 - `bible_characters.description` is generated at import as `"<clue> · <nearest CATEGORY label>"`, for example `"Le révolté · NÉS À HÉBRON"`, and admins can edit it.

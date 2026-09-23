@@ -242,6 +242,7 @@ describe('the chronometer and the microphone (§9)', () => {
       countdown,
       clockPhase: 'PLAYING',
       otherRedrew: false,
+      rewoundTo: null,
       isRoom: false,
       realtimeStatus: null,
       connectionLost: false,

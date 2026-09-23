@@ -21,10 +21,25 @@ import { Providers, renderWithProviders } from './helpers';
 const CAIN = 'ancien[oui]/homme[oui]/pentateuque[oui]/pentateuque-hommes/lie-a-adam/classe-1/le-meurtrier--cain';
 const EST_CE = /est[\s-]*ce/i;
 
-/** Every string in fr, with the string builders called on a sample label. */
+/**
+ * Every string in fr, with the string builders called on a sample argument.
+ * Builders take different shapes (a label, a count, a list of section labels),
+ * so each sample is tried until one produces a string.
+ */
+const SAMPLES: unknown[] = ['LIE A ADAM', 1, ['LIE A ADAM', 'LES EVANGILES']];
+
 function allStrings(value: unknown): string[] {
   if (typeof value === 'string') return [value];
-  if (typeof value === 'function') return [String((value as (x: string) => string)('LIE A ADAM'))];
+  if (typeof value === 'function') {
+    for (const sample of SAMPLES) {
+      try {
+        return [String((value as (...args: unknown[]) => string)(sample, sample, sample))];
+      } catch {
+        // Wrong shape for this builder: try the next sample.
+      }
+    }
+    throw new Error(`no sample argument fits this fr builder: ${String(value)}`);
+  }
   if (value && typeof value === 'object') return Object.values(value).flatMap(allStrings);
   return [];
 }

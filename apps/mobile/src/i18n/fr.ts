@@ -97,6 +97,7 @@ export const fr = {
     unknown: 'Connexion…',
     inputMode: 'Façon de jouer',
     timer: 'Chronomètre',
+    scope: 'La partie du livre',
     timerOn: 'Oui',
     timerOff: 'Non',
     cancel: 'Annuler la partie',
@@ -138,21 +139,54 @@ export const fr = {
   },
 
   setup: {
-    title: 'Préparer la partie',
+    title: 'Nouvelle partie',
     roleTitle: 'Qui joue ?',
     inputTitle: 'Façon de jouer',
     voice: 'Voix',
     voiceHint: 'Parler et écouter, comme autour d’une table.',
     buttons: 'Boutons',
     buttonsHint: 'Toucher OUI, NON et les autres réponses.',
-    start: 'Commencer la partie',
+    start: 'Jouer',
+    on: 'Activé',
+    off: 'Désactivé',
+    /** The creator of a room chooses these for both players. */
+    forBoth: 'Tu choisis pour les deux joueurs.',
     selected: 'Choisi',
     timerTitle: 'Le temps',
-    timer: 'Jouer avec le chronomètre',
+    timer: 'Chronomètre',
+    timerShort: (think: string, play: string) => `${think} + ${play}`,
+    timerNone: 'Sans limite',
     /** Uses the real durations, so the players know what they are choosing. */
     timerHint: (think: string, play: string) => `${think} pour réfléchir, puis ${play} pour trouver.`,
     timerOff: 'Sans chronomètre : prenez le temps qu’il vous faut.',
     timerChosenByCreator: 'Celui qui crée la partie choisit pour les deux joueurs.',
+
+    // "Practise a part of the book": it changes only which name is drawn.
+    scopeSectionTitle: 'La partie du livre',
+    scopeWhole: 'Tout le livre',
+    scopeWholeHint: 'Le nom peut venir de n’importe quelle page.',
+    scopeChoose: 'Choisir une partie',
+    scopeChooseHint: 'S’entraîner sur une section : le nom vient de là.',
+    scopeChangeChoice: 'Changer la partie choisie',
+    scopeChosenByCreator: 'Celui qui crée la partie choisit pour les deux joueurs.',
+    /** Always said, so nobody expects the questions to be shortened too. */
+    scopeQuestionsUnchanged: 'Les questions commencent toujours au début du livre.',
+
+    scopeTitle: 'Quelle partie du livre ?',
+    scopeHint: 'Coche une ou plusieurs sections. Le nom à trouver viendra de là.',
+    scopeLoading: 'On lit le sommaire du livre…',
+    scopeEmpty: 'Aucune section à afficher.',
+    scopeTickAll: 'Tout cocher',
+    scopeConfirm: 'Utiliser cette partie',
+    scopeWholeBook: 'Finalement, tout le livre',
+    scopeNoneChosen: 'Rien de coché : ce sera tout le livre.',
+    scopeNames: (n: number) => (n <= 1 ? `${n} nom` : `${n} noms`),
+    scopeChosen: (sections: number, names: number, total: number) =>
+      `${sections === 1 ? '1 section' : `${sections} sections`} · ${names <= 1 ? `${names} nom` : `${names} noms`} sur ${total}`,
+    scopeExpand: (label: string) => `Ouvrir ${label}`,
+    scopeCollapse: (label: string) => `Fermer ${label}`,
+    /** The game screen and the lobby: « Partie : LES EVANGILES ». */
+    scopeSummary: (labels: string[]) => `Partie : ${labels.join(', ')}`,
   },
 
   voice: {
@@ -225,7 +259,7 @@ export const fr = {
     decouvreurHint: 'Tu poses les questions. L’application tire la carte et répond.',
     tireur: 'Je suis le Tireur',
     tireurHint: 'Tu reçois la carte et tu réponds. L’application pose les questions.',
-    local: 'Deux joueurs sur ce téléphone',
+    local: 'À deux sur ce téléphone',
     localHint: 'On se passe le téléphone à chaque tour.',
     starting: 'On prépare la partie…',
   },
@@ -240,9 +274,12 @@ export const fr = {
     proposeNamePlaceholder: 'Commence à écrire un nom',
     proposeNameEmpty: 'Aucun nom ne correspond.',
     proposeNameSend: 'Proposer ce nom',
-    goBack: 'Revenir à une question',
+    goBack: 'Revenir',
     goBackTitle: 'À quelle question veux-tu revenir ?',
     goBackHint: 'Cette question sera posée de nouveau.',
+    /** The Tireur said "QUESTION": the pair goes back to the question that opened the list. */
+    rewoundTo: (question: string) => `Le Tireur demande de revenir à « ${question} ».`,
+    rewoundToStart: 'Le Tireur demande de tout reprendre depuis la première question.',
     trail: 'Le chemin parcouru',
     trailEmpty: 'Aucune question posée pour l’instant.',
     deadEnd: 'La liste est terminée et personne n’a dit oui.',
@@ -335,8 +372,13 @@ export const fr = {
     calls: 'Le Découvreur propose',
     flipHint: 'Touche la carte pour la retourner',
     mistakeTitle: 'Tu t’es trompé ?',
-    mistakeHint: 'Dis « QUESTION » une, deux ou trois fois pour revenir en arrière.',
+    // The rule since 0010: "QUESTION" re-opens a list, it does not undo one answer.
+    mistakeHint: 'Dis « QUESTION » pour revenir à la question qui a ouvert la liste. Deux ou trois fois pour remonter d’autant de listes.',
     rewindLabel: (n: number) => `QUESTION ×${n}`,
+    rewindExplain: (n: number) =>
+      n === 1
+        ? 'Retour à la question qui a ouvert la liste en cours.'
+        : `Retour ${n} listes plus haut.`,
     waitingAi: 'L’application choisit sa question…',
     card: 'Ta carte',
     reveal: 'Montrer',
@@ -349,7 +391,7 @@ export const fr = {
     guessYes: 'C’est le nom',
     guessNo: 'Ce n’est pas le nom',
     rewind: 'QUESTION',
-    rewindHint: 'Reviens en arrière si tu t’es trompé.',
+    rewindHint: 'Reviens à la question qui a ouvert la liste.',
     rewindOne: '×1',
     rewindTwo: '×2',
     rewindThree: '×3',
@@ -448,7 +490,7 @@ export const fr = {
     ANSWER_NOT_ALLOWED: 'Cette réponse n’est pas permise pour cette question.',
     INVALID_NAME: 'Ce nom est vide ou trop long.',
     INVALID_STEP: 'Cette question n’existe plus. Commence une nouvelle partie.',
-    INVALID_REWIND: 'On ne peut revenir que d’une, deux ou trois questions.',
+    INVALID_REWIND: '« QUESTION » se dit une, deux ou trois fois, et seulement après une première réponse.',
     INVALID_MODE: 'Ce mode de jeu n’existe pas.',
     INVALID_ROLE: 'Ce rôle n’existe pas.',
     GRAPH_NOT_FOUND: 'Le livre n’est pas encore publié sur le serveur.',

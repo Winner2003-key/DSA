@@ -110,28 +110,101 @@ describe('mini-graph scenarios', () => {
     return { ...m, s };
   };
 
-  it('7. Tireur "QUESTION" ×1', () => {
+  it('7. Tireur "QUESTION" ×1 goes back to the question that opened the list', () => {
+    // A wrong NON on a sibling never entered a level, so ×1 re-opens the list
+    // itself: PENTATEUQUE, not the previous question (GAME_RULES §4).
     const { engine, s: afterMistake } = mistake();
     let s = engine.rewind(afterMistake, 1);
-    expect(s.steps).toHaveLength(3);
-    expect(s.undoneSteps).toEqual([afterMistake.steps[3]]);
-    s = askAnswer(engine, s, 'LIE A ADAM', 'OUI');
-    expect(engine.prompt(s)?.text).toBe('CLASSE 1');
-    s = playAll(engine, s, [['CLASSE 1', 'OUI'], ['Premier homme', 'NON'], ['Le meurtrier', 'OUI']]);
+    expect(engine.prompt(s)?.text).toBe('PENTATEUQUE');
+    expect(s.steps).toHaveLength(2);
+    expect(s.undoneSteps).toEqual(afterMistake.steps.slice(2));
+    // The pair asks down again and gets it right this time.
+    s = askAnswer(engine, s, 'PENTATEUQUE', 'OUI');
+    s = playAll(engine, s, [['LIE A ADAM', 'OUI'], ['CLASSE 1', 'OUI'], ['Premier homme', 'NON'], ['Le meurtrier', 'OUI']]);
     s = engine.confirmGuess(engine.guess(s, 'CAÏN'), 'OUI');
     const steps = stepsOf(engine.revealedPath(s));
     expect(steps).toContainEqual(['LIE A ADAM', 'OUI']);
     expect(steps).not.toContainEqual(['LIE A ADAM', 'NON']);
-    expect(engine.stats(s)).toMatchObject({ rewinds: 1, backs: 0, questions: 8, answers: 8, nonAnswers: 2, wrongAnswers: 1, guesses: 1, wrongGuesses: 0 });
+    expect(engine.stats(s)).toMatchObject({ rewinds: 1, backs: 0, questions: 9, answers: 9, nonAnswers: 2, wrongAnswers: 1, guesses: 1, wrongGuesses: 0 });
     expect(engine.stats(s).durationMs).toBeGreaterThan(0);
   });
 
-  it('8. Tireur "QUESTION" ×2', () => {
+  it('7b. QUESTION ×1 inside a list re-asks the question that opened it', () => {
+    // The owner's first example: "1ère classe ?" OUI, then two NON inside it.
+    // ×1 re-asks CLASSE 1 itself; NON then moves to the next sibling.
+    const { engine, id } = mini();
+    const inClasse1 = playAll(engine, engine.newGame(id(KEYS.cain)), [
+      ...TO_PENTATEUQUE_OUI,
+      ['LIE A ADAM', 'OUI'],
+      ['CLASSE 1', 'OUI'],
+      ['Premier homme', 'NON'],
+      ['Le meurtrier', 'NON'],
+    ]);
+    expect(engine.prompt(inClasse1)).toBeNull(); // past the last child of CLASSE 1
+    const s = engine.rewind(inClasse1, 1);
+    expect(engine.prompt(s)?.text).toBe('CLASSE 1');
+    expect(s.steps).toHaveLength(4);
+    expect(s.undoneSteps).toHaveLength(3);
+    // NON on CLASSE 1 now walks to the next sibling of the list above.
+    const next = engine.answer(engine.ask(s), 'NON');
+    expect(engine.prompt(next)).toBeNull(); // CLASSE 1 is the only child of LIE A ADAM
+    expect(engine.rewind(next, 1).steps).toHaveLength(3);
+    expect(engine.prompt(engine.rewind(next, 1))?.text).toBe('LIE A ADAM');
+  });
+
+  it('8. Tireur "QUESTION" ×2 goes one list higher, ×3 higher still', () => {
     const { engine, s: afterMistake } = mistake();
-    const s = engine.rewind(afterMistake, 2);
-    expect(engine.prompt(s)?.text).toBe('PENTATEUQUE');
-    expect(s.steps).toHaveLength(2);
-    expect(s.undoneSteps).toHaveLength(2);
+    const two = engine.rewind(afterMistake, 2);
+    expect(engine.prompt(two)?.text).toBe('HOMME');
+    expect(two.steps).toHaveLength(1);
+    expect(two.undoneSteps).toHaveLength(3);
+
+    const three = engine.rewind(afterMistake, 3);
+    expect(engine.prompt(three)?.text).toBe('ANCIEN');
+    expect(three.steps).toHaveLength(0);
+    expect(three.undoneSteps).toHaveLength(4);
+    expect(engine.stats(three)).toMatchObject({ rewinds: 1 });
+  });
+
+  it('8b. right after a spine answer, ×1 re-asks that spine question', () => {
+    const { engine, id } = mini();
+    const s = playAll(engine, engine.newGame(id(KEYS.cain)), TO_PENTATEUQUE_OUI);
+    expect(engine.prompt(s)?.text).toBe('LIE A ADAM');
+    const back = engine.rewind(s, 1);
+    expect(engine.prompt(back)?.text).toBe('PENTATEUQUE');
+    expect(back.steps).toHaveLength(2);
+  });
+
+  it('8c. fewer entering steps than asked: back to the very first question', () => {
+    const { engine, id } = mini();
+    // One step only: ×2 and ×3 cannot find a second level, so they go to step 0.
+    const one = playAll(engine, engine.newGame(id(KEYS.cain)), [['ANCIEN', 'OUI']]);
+    for (const n of [1, 2, 3] as const) {
+      const s = engine.rewind(one, n);
+      expect(engine.prompt(s)?.text).toBe('ANCIEN');
+      expect(s.steps).toHaveLength(0);
+      expect(s.undoneSteps).toHaveLength(1);
+    }
+    // Two NON inside the same list are not levels either: ×3 lands on ANCIEN.
+    const deep = playAll(engine, engine.newGame(id(KEYS.cain)), [
+      ...TO_PENTATEUQUE_OUI,
+      ['LIE A ADAM', 'NON'],
+      ['LIE A ABRAHAM', 'NON'],
+    ]);
+    expect(engine.prompt(engine.rewind(deep, 3))?.text).toBe('ANCIEN');
+  });
+
+  it('8d. a rewind after a wrong name call keeps the name call out of the levels', () => {
+    const { engine, id } = mini();
+    let s = playAll(engine, engine.newGame(id(KEYS.cain)), [...TO_PENTATEUQUE_OUI, ['LIE A ADAM', 'OUI']]);
+    s = engine.confirmGuess(engine.guess(s, 'ADAM'), 'NON');
+    expect(engine.prompt(s)?.text).toBe('CLASSE 1');
+    // The refused name is not a step, so ×1 is still "the question that opened this list".
+    const back = engine.rewind(s, 1);
+    expect(engine.prompt(back)?.text).toBe('LIE A ADAM');
+    expect(back.steps).toHaveLength(3);
+    expect(back.pendingGuess).toBeNull();
+    expect(engine.stats(back)).toMatchObject({ rewinds: 1, guesses: 1, wrongGuesses: 1 });
   });
 
   it('9. Découvreur goes back after a dead end', () => {
@@ -166,10 +239,13 @@ describe('mini-graph scenarios', () => {
     expectEngineError(() => engine.answer(engine.ask(s), 'OUI OUI OUI'), 'ANSWER_NOT_ALLOWED');
     s = playAll(engine, s, [['LIE A ADAM', 'OUI']]);
     expect(s.steps).toHaveLength(4);
+    // INVALID_REWIND is now only about N and an empty path.
     expectEngineError(() => engine.rewind(s, 4 as 3), 'INVALID_REWIND');
     expectEngineError(() => engine.rewind(s, 0 as 1), 'INVALID_REWIND');
+    expectEngineError(() => engine.rewind(engine.newGame(id(KEYS.cain)), 1), 'INVALID_REWIND');
+    // More levels asked for than exist is not an error: it goes back to the start.
     const short = playAll(engine, engine.newGame(id(KEYS.cain)), [['ANCIEN', 'OUI']]);
-    expectEngineError(() => engine.rewind(short, 2), 'INVALID_REWIND');
+    expect(engine.rewind(short, 2).steps).toHaveLength(0);
   });
 
   it('11. AI Tireur + AI Découvreur discover every playable secret with correct answers', () => {

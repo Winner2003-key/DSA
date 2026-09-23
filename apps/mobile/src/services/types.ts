@@ -40,10 +40,16 @@ export interface GameSettings {
   play_seconds: number | null;
   /** How many times the Tireur may draw another name before the start. */
   max_redraws: number;
+  /**
+   * "Choisir une partie": the section node ids the drawn name must come from.
+   * Empty is « Tout le livre ». It changes **only** which name is drawn — the
+   * questions still start at ANCIEN, so the pair walks the whole book down to it.
+   */
+  scope: string[];
 }
 
-/** The two keys a client may choose. Everything else is the server's to fill in. */
-export type ClientSettings = Pick<GameSettings, 'input_mode' | 'timed'>;
+/** The three keys a client may choose. Everything else is the server's to fill in. */
+export type ClientSettings = Pick<GameSettings, 'input_mode' | 'timed' | 'scope'>;
 
 export const DEFAULT_SETTINGS: GameSettings = {
   input_mode: 'BUTTONS',
@@ -51,6 +57,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   think_seconds: null,
   play_seconds: null,
   max_redraws: 2,
+  scope: [],
 };
 
 export interface StatePlayer {
@@ -98,6 +105,22 @@ export interface GameState {
   /** How many times the Tireur has already drawn another name. Never which ones. */
   redraws_used: number;
   redraws_left: number;
+  /**
+   * The names of the chosen sections, in book order ("LES EVANGILES"), so the
+   * game screen can write « Partie : … » without a second call. Empty for the
+   * whole book. Labels only: a section is never a name.
+   */
+  scope_labels: string[];
+}
+
+/** One line of `dsa_list_sections`: the picker's tree, with no name and no clue. */
+export interface BookSection {
+  node_id: string;
+  label: string;
+  parent_id: string | null;
+  depth: number;
+  /** How many playable names are underneath. */
+  characters: number;
 }
 
 export interface Secret {

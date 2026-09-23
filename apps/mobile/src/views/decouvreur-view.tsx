@@ -8,6 +8,7 @@ import {
   ExchangePair,
   LinkButton,
   NamePad,
+  NoticeBanner,
   PathSheet,
   PrimaryButton,
   SecondaryButton,
@@ -21,6 +22,7 @@ import type { UseGame } from '@/state/use-game';
 import { useSpeech } from '@/speech/use-speech';
 import { useTheme } from '@/theme';
 import { DecouvreurVoice, isVoiceGame } from './voice-play';
+import { Route, Undo2, UserPen } from '@/components';
 
 export interface DecouvreurViewProps {
   game: UseGame;
@@ -45,7 +47,7 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
   const theme = useTheme();
   const { speak } = useSpeech();
   const { names } = useNames();
-  const { state, busy, exchanges, outgoing } = game;
+  const { state, busy, exchanges, outgoing, rewoundTo } = game;
 
   const [namePadOpen, setNamePadOpen] = useState(false);
   const [stepPickerOpen, setStepPickerOpen] = useState(false);
@@ -104,14 +106,19 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
   const waitingName = outgoing?.kind === 'GUESS' ? outgoing.name : awaiting === 'GUESS_CONFIRM' ? pendingGuess : null;
   const myTurn = status === 'PLAYING' && awaiting === 'QUESTION' && !outgoing;
 
+  // A rewind that went all the way back leaves the path empty: the notice then
+  // says "tout reprendre" rather than naming the first question twice.
+  const justRewoundToStart = rewoundTo !== null && state.path.length === 0;
   const canAct = myTurn && !busy;
   const canGoBack = canAct && state.path.length > 0;
   const atCharacter = myTurn && prompt === null && !deadEnd;
 
   const secondary = (primaryIsGoBack: boolean) => (
-    <View style={{ gap: theme.space.xs }}>
+    <View style={{ flexDirection: 'row', gap: theme.space.xs }}>
       <SecondaryButton
         testID="propose-name"
+        style={{ flex: 1, width: undefined }}
+        icon={UserPen}
         label={fr.game.proposeName}
         disabled={!canAct}
         onPress={() => setNamePadOpen(true)}
@@ -119,6 +126,8 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
       {primaryIsGoBack ? null : (
         <SecondaryButton
           testID="go-back"
+          style={{ flex: 1, width: undefined }}
+          icon={Undo2}
           label={fr.game.goBack}
           disabled={!canGoBack}
           onPress={() => setStepPickerOpen(true)}
@@ -133,7 +142,7 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
       style={{
         backgroundColor: theme.colors.surfaceRaised,
         borderRadius: theme.radius.card,
-        borderWidth: 2,
+        borderWidth: 1,
         borderColor: accent,
         padding: theme.space.lg,
         gap: theme.space.sm,
@@ -192,6 +201,7 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
         </AppText>
         <PrimaryButton
           testID="go-back"
+          icon={Undo2}
           label={fr.game.goBack}
           disabled={!canGoBack}
           onPress={() => setStepPickerOpen(true)}
@@ -210,9 +220,10 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
         <AppText variant="body" tone="soft">
           {fr.conversation.characterReachedHint}
         </AppText>
-        <PrimaryButton testID="propose-name" label={fr.game.proposeName} disabled={!canAct} onPress={() => setNamePadOpen(true)} />
+        <PrimaryButton testID="propose-name" icon={UserPen} label={fr.game.proposeName} disabled={!canAct} onPress={() => setNamePadOpen(true)} />
         <SecondaryButton
           testID="go-back"
+          icon={Undo2}
           label={fr.game.goBack}
           disabled={!canGoBack}
           onPress={() => setStepPickerOpen(true)}
@@ -223,6 +234,13 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
 
   return (
     <View style={{ flex: 1, gap: theme.space.md }}>
+      {rewoundTo !== null ? (
+        <NoticeBanner
+          testID="rewound-to"
+          title={justRewoundToStart ? fr.game.rewoundToStart : fr.game.rewoundTo(asQuestion(rewoundTo))}
+        />
+      ) : null}
+
       <EarlierExchanges exchanges={earlier} />
 
       {latest ? (
@@ -238,7 +256,7 @@ export function DecouvreurView({ game }: DecouvreurViewProps) {
       {voice ? <DecouvreurVoice game={game} names={names} onChooseStep={() => setStepPickerOpen(true)} /> : null}
 
       {state.path.length > 0 ? (
-        <LinkButton testID="see-path" label={fr.conversation.seePath} onPress={() => setPathOpen(true)} />
+        <LinkButton testID="see-path" icon={Route} label={fr.conversation.seePath} onPress={() => setPathOpen(true)} />
       ) : null}
 
       <NamePad

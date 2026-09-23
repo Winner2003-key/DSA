@@ -1,5 +1,6 @@
 import type { RealtimeStatus } from './realtime-sync';
 import type {
+  BookSection,
   CreateSessionOptions,
   CreatedSession,
   GameState,
@@ -70,6 +71,13 @@ export interface GameService {
    * They are the admin's current Réglages, not a running game's snapshot.
    */
   getTimerDefaults(): Promise<TimerDefaults>;
+
+  /**
+   * The book's sections, for the « Choisir une partie » picker: label, parent,
+   * depth and how many names each holds. Never a name, a clue or a leaf, so the
+   * picker shows no more than the book's table of contents.
+   */
+  listSections(graphSlug: string): Promise<BookSection[]>;
 
   getRevealedPath(sessionId: string): Promise<RevealedPath>;
   /** The book's own path to the name. Only once the game is over. */

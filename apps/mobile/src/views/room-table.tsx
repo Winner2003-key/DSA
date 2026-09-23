@@ -10,6 +10,7 @@ import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
 import { GameTable } from './game-table';
 import { LobbyView } from './lobby-view';
+import { Clock, Flag } from '@/components';
 
 export interface RoomTableProps {
   sessionId: string;
@@ -91,12 +92,14 @@ export function RoomTable({ sessionId, game, onCancelled, rematchOf = null, grac
           <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
             <SecondaryButton
               testID="other-gone-wait"
+              icon={Clock}
               label={fr.room.wait}
               onPress={() => setWaitingSince(absentSince)}
               style={{ flex: 1, width: undefined }}
             />
             <PrimaryButton
               testID="other-gone-abandon"
+              icon={Flag}
               label={fr.room.abandon}
               disabled={game.busy}
               onPress={() => void game.abandon()}

@@ -11,6 +11,7 @@ import { useVoiceTurn, type VoiceTurn } from '@/speech/use-voice-turn';
 import { useVoiceSettings } from '@/speech/voice-settings';
 import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
+import { X } from '@/components';
 
 /** Voice was chosen for this game ("Façon de jouer : Voix"). */
 export function isVoiceGame(game: UseGame): boolean {
@@ -27,7 +28,7 @@ function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; e
     <View testID={testID} style={{ gap: theme.space.xs }}>
       {turn.fallback ? (
         <NoticeBanner testID="voice-fallback" tone="warn" title={turn.fallback} hint={fr.voice.useButtons}>
-          <SecondaryButton testID="voice-fallback-close" label={fr.app.close} onPress={turn.dismissFallback} />
+          <SecondaryButton testID="voice-fallback-close" icon={X} label={fr.app.close} onPress={turn.dismissFallback} />
         </NoticeBanner>
       ) : null}
       {turn.off ? null : (
@@ -196,7 +197,7 @@ export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: 
             gap: theme.space.sm,
             padding: theme.space.md,
             borderRadius: theme.radius.card,
-            borderWidth: 2,
+            borderWidth: 1,
             borderColor: theme.colors.brass,
             backgroundColor: theme.colors.surfaceRaised,
           }}

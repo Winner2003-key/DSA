@@ -158,9 +158,13 @@ describe('layoutPath', () => {
       await service.ask(sessionId);
       await service.answer(sessionId, label);
     }
-    await service.rewind(sessionId, 1); // the NON at LIE A ADAM is undone
-    await service.ask(sessionId);
-    await service.answer(sessionId, 'OUI');
+    // "QUESTION" ×1 re-opens the list: PENTATEUQUE is asked again, and the NON at
+    // LIE A ADAM (plus the PENTATEUQUE step itself) is undone.
+    await service.rewind(sessionId, 1);
+    for (const label of ['OUI', 'OUI']) {
+      await service.ask(sessionId);
+      await service.answer(sessionId, label);
+    }
     const path = (await service.getState(sessionId)).path;
 
     const layout = layoutPath(path);

@@ -1,3 +1,5 @@
+import { isEngineError } from '@dsa/core';
+
 import { fr, type ErrorCode } from '@/i18n/fr';
 
 /**
@@ -24,6 +26,9 @@ function isKnownCode(code: string): code is ErrorCode {
 /** `DSA_ROOM_FULL: ...` → DsaError('ROOM_FULL'). Anything else → a sensible fallback. */
 export function toDsaError(error: unknown): DsaError {
   if (error instanceof DsaError) return error;
+  // @dsa/core throws `EngineError` with a bare code ("INVALID_REWIND: …"). The
+  // offline service runs on that engine, so its failures must read in French too.
+  if (isEngineError(error) && isKnownCode(error.code)) return new DsaError(error.code, error.message);
 
   const raw =
     typeof error === 'string'

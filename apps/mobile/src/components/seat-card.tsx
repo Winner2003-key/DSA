@@ -45,7 +45,7 @@ export function SeatCard({ seat }: { seat: Seat }) {
         flex: 1,
         minHeight: 112,
         borderRadius: theme.radius.card,
-        borderWidth: 2,
+        borderWidth: 1,
         borderStyle: empty ? 'dashed' : 'solid',
         borderColor: empty ? theme.colors.line : seat.isMe ? theme.colors.brass : theme.colors.line,
         backgroundColor: empty ? 'transparent' : theme.colors.surface,
