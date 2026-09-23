@@ -9,6 +9,7 @@ import { useTheme } from '@/theme';
 export type { LucideIcon } from 'lucide-react-native';
 export {
   ArrowLeft,
+  ArrowLeftRight,
   Check,
   ChevronRight,
   Clock,
@@ -32,6 +33,7 @@ export {
   Settings,
   Share2,
   SkipBack,
+  SkipForward,
   Sparkles,
   Sun,
   Undo2,

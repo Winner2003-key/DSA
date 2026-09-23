@@ -327,3 +327,30 @@ describe('useGame and the clock', () => {
     expect(result.current.countdown.running).toBe(false);
   });
 });
+
+describe('the AI Découvreur waits for the Tireur', () => {
+  it('never plays during the preparation phase, and starts once the Tireur is ready', async () => {
+    const clock = fakeClock();
+    const service = timedService(clock);
+    const { sessionId } = await service.createSession({ graphSlug: 'mini', mode: 'AI_DECOUVREUR', settings: { timed: true } });
+    const step = jest.spyOn(service, 'aiDecouvreurStep');
+
+    const { result } = await renderHook(() => useGame(sessionId, { service, aiThinkingMs: 0 }), { wrapper });
+    await waitFor(() => expect(result.current.phase).toBe('TIREUR_READY'));
+    // Before the fix the hook retried every refused step, so busy flickered and
+    // the Tireur's own taps were dropped while a step was in flight.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(step).not.toHaveBeenCalled();
+    expect(result.current.busy).toBe(false);
+    expect(result.current.aiThinking).toBe(false);
+
+    await act(async () => {
+      result.current.confirmTireurReady();
+    });
+    await waitFor(() => expect(result.current.phase).toBe('PLAYING'));
+    expect(result.current.clockPhase).toBe('PLAYING');
+    await waitFor(() => expect(step).toHaveBeenCalled());
+  });
+});

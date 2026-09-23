@@ -13,11 +13,11 @@ import { RoomTable } from '@/views/room-table';
 export default function PartieScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const params = useLocalSearchParams<{ sessionId?: string; revanche?: string; ancien?: string }>();
+  const params = useLocalSearchParams<{ sessionId?: string; revanche?: string; ancien?: string; ami?: string }>();
   const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
   const rematchOf =
     typeof params.revanche === 'string' && typeof params.ancien === 'string'
-      ? { sessionId: params.revanche, roomCode: params.ancien }
+      ? { sessionId: params.revanche, roomCode: params.ancien, friendName: typeof params.ami === 'string' && params.ami !== '' ? params.ami : null }
       : null;
 
   const game = useGame(sessionId);

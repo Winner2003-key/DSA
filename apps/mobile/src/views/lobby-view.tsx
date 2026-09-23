@@ -17,6 +17,11 @@ export interface LobbyViewProps {
   onCancel: () => void;
   /** Set when this room is a rematch the other player turned down. */
   declinedBy?: string | null | undefined;
+  /**
+   * The next name in a room the pair already played in: the friend is on the
+   * end screen and joins with one tap, so there is no code to hand out.
+   */
+  rematch?: { friendName: string | null } | null;
 }
 
 /**
@@ -24,7 +29,7 @@ export interface LobbyViewProps {
  * share button and a QR code; the two seats with each phone's presence; and a way
  * out. The joiner never sees this screen — joining starts the game.
  */
-export function LobbyView({ state, room, busy, onCancel, declinedBy }: LobbyViewProps) {
+export function LobbyView({ state, room, busy, onCancel, declinedBy, rematch = null }: LobbyViewProps) {
   const theme = useTheme();
   const [notice, setNotice] = useState<string | null>(null);
   const code = state.room_code ?? '';
@@ -39,16 +44,16 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy }: LobbyView
     <View testID="lobby" style={{ gap: theme.space.lg }}>
       <View style={{ gap: theme.space.xxs }}>
         <AppText variant="display" weight="bold" tight>
-          {fr.lobby.title}
+          {rematch ? fr.rematch.waitingTitle(rematch.friendName) : fr.lobby.title}
         </AppText>
         <AppText variant="body" tone="soft">
-          {fr.lobby.codeHint}
+          {rematch ? fr.rematch.waitingHint : fr.lobby.codeHint}
         </AppText>
       </View>
 
       {declinedBy !== undefined ? <NoticeBanner testID="rematch-declined" tone="warn" title={fr.lobby.declined(declinedBy)} /> : null}
 
-      {code ? (
+      {code && !rematch ? (
         <View style={{ gap: theme.space.md }}>
           <RoomCodeDisplay code={code} />
           <SecondaryButton testID="lobby-share" icon={Share2} label={fr.lobby.share} onPress={() => void share()} />

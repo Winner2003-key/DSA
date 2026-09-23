@@ -382,7 +382,16 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
   // --- AI Découvreur -----------------------------------------------------------
   useEffect(() => {
     if (!sessionId || !state) return;
-    if (state.mode !== 'AI_DECOUVREUR' || state.status !== 'PLAYING' || state.awaiting !== 'QUESTION') {
+    // The server already says `awaiting: QUESTION` during the preparation phase,
+    // but refuses every AI step until the Tireur is ready. Trying anyway would
+    // spin: each refusal re-reads the state, which schedules the next attempt,
+    // and the in-flight attempt swallows the Tireur's own taps.
+    if (
+      state.mode !== 'AI_DECOUVREUR' ||
+      state.status !== 'PLAYING' ||
+      !state.tireur_ready ||
+      state.awaiting !== 'QUESTION'
+    ) {
       setAiThinking(false);
       return;
     }

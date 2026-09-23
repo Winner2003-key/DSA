@@ -17,8 +17,8 @@ export interface RoomTableProps {
   game: UseGame;
   /** The lobby's "Annuler la partie" went through. */
   onCancelled: () => void;
-  /** This room is the rematch of another one: listen there for a refusal. */
-  rematchOf?: { sessionId: string; roomCode: string } | null;
+  /** This room is the next name of another one: listen there for a refusal. */
+  rematchOf?: { sessionId: string; roomCode: string; friendName?: string | null } | null;
   /** Injected in tests. */
   graceMs?: number;
 }
@@ -121,6 +121,7 @@ export function RoomTable({ sessionId, game, onCancelled, rematchOf = null, grac
           room={view}
           busy={game.busy}
           declinedBy={declinedBy}
+          rematch={rematchOf ? { friendName: rematchOf.friendName ?? null } : null}
           onCancel={() => {
             void game.abandon().then(onCancelled);
           }}

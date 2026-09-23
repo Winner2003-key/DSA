@@ -123,19 +123,17 @@ export const fr = {
   },
 
   rematch: {
-    title: 'Rejouer ensemble',
-    hint: 'Une nouvelle partie avec ton ami, un nouveau nom.',
-    same: 'Mêmes rôles',
-    sameHint: (role: string) => `Tu restes ${role}.`,
-    swap: 'Inverser les rôles',
-    swapHint: (role: string) => `Tu deviens ${role}.`,
-    creating: 'On prépare la nouvelle partie…',
-    offer: (name: string | null) => `${name ?? 'Ton ami'} veut rejouer`,
-    offerSame: (role: string) => `Mêmes rôles : tu restes ${role}.`,
+    // The room goes on after a game: same friend, same settings, a new name.
+    next: 'Nom suivant',
+    nextHint: 'Mêmes réglages, un nouveau nom.',
+    swap: (role: string) => `Changer de rôle : tu deviens ${role}`,
+    starting: 'On tire le nom suivant…',
+    offer: (name: string | null) => `${name ?? 'Ton ami'} passe au nom suivant`,
+    offerSame: (role: string) => `Tu restes ${role}.`,
     offerSwap: (role: string) => `Rôles inversés : tu deviens ${role}.`,
-    accept: 'Rejouer',
-    decline: 'Non merci',
-    newGame: 'Nouvelle partie seul',
+    join: 'Continuer',
+    waitingTitle: (name: string | null) => `On attend ${name ?? 'ton ami'}…`,
+    waitingHint: 'Mêmes réglages, un nouveau nom. La partie commence dès que ton ami continue.',
   },
 
   setup: {
