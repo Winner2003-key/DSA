@@ -354,7 +354,7 @@ The implementations in `docs/sessions/reports/S1-core.md` and `S2-database.md` a
 - **Spoken answers** (AI Tireur and echoes): OUI → "Oui.", NON → "Non.", the repeated codes → a clearly **held** sound ("Ouiiii !" / "Nonnnn !"), JE NE SAIS PAS → "Je ne sais pas."
 - **Credentials:**
   - Groq / Hugging Face keys are Supabase Edge Function secrets only (§1);
-  - TURN server credentials (S7c) are issued short-lived by an Edge Function, never embedded in the app.
+  - Call credentials (S7c, LiveKit) are short-lived access tokens issued by the `livekit-token` Edge Function to the room's two players only; the LiveKit API key and secret live only in Supabase secrets, never in the app.
 
 ## 9. Timed games, name changes and the solution path (owner, 2026-09-16 / 2026-09-17; built by S9)
 

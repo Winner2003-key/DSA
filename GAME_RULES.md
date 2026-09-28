@@ -98,6 +98,23 @@ The Tireur's card shows the name. **A short description is added only when sever
 | AI_DECOUVREUR | person | application (asks the book's questions in order, calls the name after an OUI on a clue) |
 | LOCAL | same device, passed between players; **the Tireur goes first** (sees the card, then passes the phone) | same device |
 
+## Voix in a room is a call (owner, 2026-09-28; built by S7c)
+
+In a room (HUMAN_VS_HUMAN), choosing **Voix** means the two players are **on a call**, like a phone call: each hears the other's own voice, live. Nothing is recognized or transcribed.
+
+- The setup is unchanged: create or join the room, the Tireur sees the card and says they're ready. The call then connects by itself.
+- The players play out loud exactly as with a paper card: the Découvreur asks the book's questions, the Tireur answers, the Découvreur calls names.
+- **The Tireur ends the game** with **« Trouvé »** (the Découvreur said the name) or **« Pas trouvé »** (they stop). If the timer is on and runs out first, the game ends as usual (time up).
+- The end screen is the usual one: the name, the time it took when the timer was on, and the book's path to the name. The app didn't follow the questions, so it doesn't show question statistics or the players' own path.
+- Speech recognition (hold-to-talk, S7b) stays the Voix mode of the other modes: against the application, and on one phone.
+
+**Call limits (owner, 2026-09-28).** A normal game takes about 2 minutes. Calls cost minutes on the call provider, so:
+- **A call lasts at most 5 minutes**, or less if the player's minutes left for the day are fewer. The lobby says so before the game starts (« Appel limité à 5 min · il te reste 32 min d'appel aujourd'hui »). When the call time is up, the game ends for both players (« Temps d'appel écoulé ») and the call closes.
+- **No clock for the call.** In a game without the timer, no time is shown on screen; a banner appears only at 1 minute and 30 seconds before the end of the call. In a game with the timer, only the game's timer is shown, and the call banners appear only if the call would end before it.
+- **Each player has call minutes per day, 40 by default.** Only the minutes played count, for both players. With less than 1 minute left, Voix isn't available in rooms until the next day; Boutons still is.
+- **The whole app has a monthly call budget.** When it's nearly used up, new calls are refused with a clear message, and Boutons still works.
+- The admin can change these numbers in Réglages. Players will use the app often, especially at lunch, so the limits are only checked when a call game starts. A running game ends only at its own call time.
+
 ## Still open (see DIGITIZATION_REPORT.md §9)
 
 - "LIÉ À JOB" is asked after "LES PETITS PROPHÈTES" (HOMME → OUIOUIOUI branch), by owner decision. "LIVRE POÉTIQUE" is placed after it and still needs admin confirmation.

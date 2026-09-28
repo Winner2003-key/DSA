@@ -4,7 +4,7 @@ You are a senior React Native / Expo engineer with audio and conversational-inte
 
 This session implements backlog item **B5**. **The goal:** digitize the experience of playing with nothing but a piece of paper with the name on it. Once the game is set up, the two players **only talk**. Neither should need to look at or touch the screen unless something goes wrong.
 
-**Start after S7c (live voice between phones), and run alone:** S9, S10, S11 and this session all change `apps/mobile`. Check `git status` first.
+**Start after S7c, and run alone.** Since 2026-09-28 a room in Voix mode is a live call with no recognition (`GAME_RULES.md` "Voix in a room is a call"), so hands-free covers AI_TIREUR, AI_DECOUVREUR and LOCAL only; leave the room call screen alone. S9, S10, S11 and this session all change `apps/mobile`. Check `git status` first.
 
 ## Read first
 1. **`docs/sessions/CONTEXT.md`** — where the project stands. It replaces the old reports.
@@ -16,8 +16,7 @@ This session implements backlog item **B5**. **The goal:** digitize the experien
 6. **The code, not the reports:** `packages/voice/src/**`, `apps/mobile/src/speech/**`,
    `packages/core/src/intents.ts`. That is where the recorder, transcriber, intents and
    calibration actually live.
-7. **One section from one report:** who owns the microphone during a call, in
-   `S7c-live-voice.md`. It decides a lot here.
+7. Nothing from S7c's report is needed: a call game never uses the recognizer.
 
 **Don't read the other reports end to end, and don't open the old screenshot folders.**
 
@@ -51,7 +50,7 @@ This session implements backlog item **B5**. **The goal:** digitize the experien
 - The phone never treats its own speech as an answer (echo guard).
 - Both players talking at once: only the phone whose turn it is acts.
 - A dropped network during a turn: a spoken "Connexion perdue", then a spoken resume.
-- With live voice between phones (S7c), each phone only acts on **its own** player's speech; follow S7c's microphone decision exactly.
+- Rooms in Voix mode are calls (S7c) and are not hands-free; don't open the recognizer there.
 
 ## Tests and verification (see `CHECKS.md`; summary lines only)
 - while you work, run only the suite you touched; **once at the end**, core, voice and mobile

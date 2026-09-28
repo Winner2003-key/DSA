@@ -66,7 +66,7 @@ Directions to design in a dedicated session (after S7c live voice):
   - spoken commands: "Répète", "Pause", "Abandonner".
 - **The screen is only a mirror** of what's said. The game must be finishable face down on the table.
 - **Robustness:** background noise, two people talking over each other, and the phone's own voice never picked up as an answer.
-- **With live voice between phones (S7c),** each phone recognizes only its own player's speech.
+- **Rooms are out of scope for hands-free (owner, 2026-09-28):** in a room, Voix is a live call with no recognition (S7c, `GAME_RULES.md` "Voix in a room is a call"). Hands-free applies to playing against the application and on one phone.
 
 ---
 

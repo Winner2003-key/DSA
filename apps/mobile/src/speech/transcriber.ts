@@ -6,9 +6,11 @@
  * Only the words come from here. Whether a Tireur said OUI or a held "ouiiii" is
  * decided from the recording's loudness envelope (`@dsa/voice` decideAnswer).
  */
+import { fetch as expoFetch } from 'expo/fetch';
 import { createTranscribeClient, TranscribeError, type SpeechToText } from '@dsa/voice';
 
 import { ensureSignedIn, getSupabase, isSupabaseConfigured, SUPABASE_ANON_KEY, SUPABASE_URL } from '@/services/supabase';
+import { audioFilePart } from './audio-part';
 import type { Recording } from './recorder-types';
 
 export type Transcriber = SpeechToText<Recording>;
@@ -34,14 +36,22 @@ function build(): Transcriber {
       const { data } = await getSupabase().auth.getSession();
       return data.session?.access_token ?? null;
     },
-    fetch: (url, init) => fetch(url, init as RequestInit),
+    fetch: async (url, init) => {
+      try {
+        // expo/fetch: the global fetch on native in SDK 57, the browser's own on the web.
+        return await expoFetch(url, init as Parameters<typeof expoFetch>[1]);
+      } catch (caught) {
+        // The player only sees "Pas de connexion au serveur vocal"; keep the real cause in the logs.
+        console.warn('[transcribe] fetch failed', url, caught);
+        throw caught;
+      }
+    },
     createFormData: () => new FormData(),
     appendAudio: (form, field, recording) => {
       if (recording.audio.kind === 'blob') {
         form.append(field, recording.audio.blob, recording.fileName);
       } else {
-        // React Native's FormData takes a file descriptor object.
-        form.append(field, { uri: recording.audio.uri, name: recording.fileName, type: recording.mimeType });
+        form.append(field, audioFilePart(recording.audio.uri, recording.fileName, recording.mimeType), recording.fileName);
       }
     },
   });
