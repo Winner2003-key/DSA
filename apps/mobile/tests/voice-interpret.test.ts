@@ -25,7 +25,7 @@ function stateAt(promptText: string | null, path: PathEntry[] = []): GameState {
     pending_guess: null,
     path,
     players: [],
-    settings: { input_mode: 'VOICE', timed: false, think_seconds: null, play_seconds: null, max_redraws: 2, scope: [] },
+    settings: { input_mode: 'VOICE', timed: false, think_seconds: null, play_seconds: null, max_redraws: 2, call_max_seconds: null, scope: [] },
     tireur_ready: true,
     room_code: null,
     timed: false,
@@ -36,6 +36,8 @@ function stateAt(promptText: string | null, path: PathEntry[] = []): GameState {
     redraws_used: 0,
     redraws_left: 2,
     scope_labels: [],
+    call_started_at: null,
+    call_ends_at: null,
   };
 }
 

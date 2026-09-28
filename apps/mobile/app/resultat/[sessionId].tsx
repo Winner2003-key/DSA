@@ -19,7 +19,7 @@ import { acceptRematch, declineRematch, parseRematchOffer, proposeRematch, type 
 import { useRoom } from '@/rooms/use-room';
 import { getGameService } from '@/services';
 import { toDsaError, type DsaError } from '@/services/errors';
-import { cardDescription, type GameState, type RevealedPath, type SolutionPath } from '@/services/types';
+import { cardDescription, isCallGame, type GameState, type RevealedPath, type SolutionPath } from '@/services/types';
 import { useSpeech } from '@/speech/use-speech';
 import { useTheme } from '@/theme';
 import { House, RotateCcw } from '@/components';
@@ -79,6 +79,8 @@ export default function ResultatScreen() {
 
   // A room stays joined here, so "Nom suivant" can reach the other phone.
   const isRoom = state?.mode === 'HUMAN_VS_HUMAN';
+  // A call game has no question statistics to show: only the book's path.
+  const isCall = state !== null && isCallGame(state);
   const me = isRoom ? (state?.players.find((p) => p.is_me && !p.is_ai) ?? null) : null;
   const room = useRoom(isRoom ? (state?.room_code ?? null) : null, me ? { role: me.role, name: me.display_name } : null, {
     onBroadcast: (event, payload) => {
@@ -195,7 +197,7 @@ export default function ResultatScreen() {
             paddingBottom: theme.space.sm,
           }}
         >
-          <ResultHeader reveal={reveal} />
+          <ResultHeader reveal={reveal} call={isCall} />
           {/* Then the book's own way to that name — not the players' detours.
               Whatever the outcome, this is what the end screen teaches (§9). */}
           {solution && secret ? (

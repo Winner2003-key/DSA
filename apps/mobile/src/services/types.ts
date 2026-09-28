@@ -22,7 +22,11 @@ export interface PathEntry {
   target_text: string | null;
 }
 
-/** How the players give their answers. VOICE stays disabled in the UI until S7. */
+/**
+ * How the players give their answers. In a room, VOICE means a live call between
+ * the two phones (GAME_RULES.md "Voix in a room is a call"); in every other mode
+ * it is speech recognition.
+ */
 export type InputMode = 'VOICE' | 'BUTTONS';
 
 /**
@@ -41,6 +45,12 @@ export interface GameSettings {
   /** How many times the Tireur may draw another name before the start. */
   max_redraws: number;
   /**
+   * The longest this game's call may last, copied from the Réglages when the game
+   * was created; null outside a Voix game. Changing the setting never shortens a
+   * call already being played.
+   */
+  call_max_seconds: number | null;
+  /**
    * "Choisir une partie": the section node ids the drawn name must come from.
    * Empty is « Tout le livre ». It changes **only** which name is drawn — the
    * questions still start at ANCIEN, so the pair walks the whole book down to it.
@@ -57,6 +67,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   think_seconds: null,
   play_seconds: null,
   max_redraws: 2,
+  call_max_seconds: null,
   scope: [],
 };
 
@@ -111,6 +122,44 @@ export interface GameState {
    * whole book. Labels only: a section is never a name.
    */
   scope_labels: string[];
+
+  // --- the call of a Voix room (GAME_RULES "Voix in a room is a call") ------
+  /** When the call opened: the end of Tireur-ready. Null outside a call game. */
+  call_started_at: string | null;
+  /**
+   * The call's own deadline, fixed when it opened: at most the Réglages' maximum,
+   * less if a player had fewer minutes left today. Nothing moves it afterwards,
+   * and the app joins the call only once it is set.
+   */
+  call_ends_at: string | null;
+}
+
+/** `dsa_call_allowance`: what the lobby and the Voix choice may promise. */
+export interface CallAllowance {
+  minutes_left_today: number;
+  daily_minutes: number;
+  /** The longest a call may last, in seconds. */
+  max_seconds: number;
+  /** False when the app's monthly call budget is used up: Boutons still works. */
+  available: boolean;
+}
+
+/** A server without 0011 answers nothing: Voix in a room is then simply not offered. */
+export const NO_CALL_ALLOWANCE: CallAllowance = {
+  minutes_left_today: 0,
+  daily_minutes: 0,
+  max_seconds: 0,
+  available: false,
+};
+
+/** Enough call minutes to start a game (GAME_RULES: under one minute, Voix is out). */
+export function callUsable(allowance: CallAllowance): boolean {
+  return allowance.available && allowance.minutes_left_today >= 1;
+}
+
+/** A room played with Voix is a call, not speech recognition. */
+export function isCallGame(state: Pick<GameState, 'mode' | 'settings'>): boolean {
+  return state.mode === 'HUMAN_VS_HUMAN' && state.settings.input_mode === 'VOICE';
 }
 
 /** One line of `dsa_list_sections`: the picker's tree, with no name and no clue. */
@@ -161,6 +210,19 @@ export interface SolutionPath {
   secret: Secret | null;
 }
 
+/**
+ * How the game ended, from the last SYSTEM move. A call game needs it: the result
+ * screen says « Pas trouvé » for NOT_FOUND and « Temps d'appel écoulé » for
+ * CALL_TIME_UP, where a game with questions shows its statistics.
+ */
+export type EndEvent = 'FOUND' | 'NOT_FOUND' | 'CALL_TIME_UP' | 'TIME_UP' | 'ABANDONED';
+
+const END_EVENTS: EndEvent[] = ['FOUND', 'NOT_FOUND', 'CALL_TIME_UP', 'TIME_UP', 'ABANDONED'];
+
+export function asEndEvent(raw: unknown): EndEvent | null {
+  return typeof raw === 'string' && (END_EVENTS as string[]).includes(raw) ? (raw as EndEvent) : null;
+}
+
 /** `dsa_get_revealed_path`. `secret` stays null until the game ends. */
 export interface RevealedPath {
   status: SessionStatus;
@@ -169,6 +231,8 @@ export interface RevealedPath {
   /** null only from a server that predates 03_game_ux.sql; the UI then hides the stats. */
   stats: GameStats | null;
   secret: Secret | null;
+  /** Null on a server that predates 08_room_call.sql. */
+  end_event: EndEvent | null;
 }
 
 /** `dsa_timer_defaults`: what the chronometer would give a game started now. */

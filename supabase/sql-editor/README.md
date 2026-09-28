@@ -47,6 +47,15 @@ After `06`, the three durations can be changed in the admin app under **Réglage
 
 The new rule applies to games **already in progress**: the next "QUESTION" in them follows it.
 
+`08_room_call.sql` brings a project up to date with the live-call update: a room played with **Voix** is a **call** between the two phones, nothing is transcribed, and the Tireur ends the game with **Trouvé** or **Pas trouvé** (`dsa_declare_result`). It adds the four call settings to `app_settings`, the `call_usage` table, `dsa_call_allowance`, and the call's own deadline (`game_sessions.call_ends_at`). Run it after `07` (it stops with a clear message if `07` is missing), then run `90_tests.sql` again and expect `ALL DSA TESTS PASSED`. It is safe to run more than once, and a new project doesn't need it: the regenerated `00` contains it.
+
+| Order | File | What it does | Run again? |
+|---|---|---|---|
+| 1 | `08_room_call.sql` | Same content as `migrations/0011_room_call.sql` | Yes |
+| 2 | `90_tests.sql` | Checks everything still passes | Yes |
+
+The call itself also needs the `livekit-token` Edge Function and three LiveKit secrets: see [`VOICE.md`](../../VOICE.md), **"Appel dans une salle"**. Until they are set up, Voix in a room is simply not offered and **Boutons** works as before. The limits are only checked when a call **starts**; a game already being played is never cut before its own call time.
+
 > **Paste the upgrade files in increasing order, and never an older one after a newer one.** Each file re-creates the functions as they were at its own version, so running `06` again *after* `07` silently puts the older `dsa_new_session` and `dsa_normalize_settings` back, and the scope stops being honoured. If that happens, just run the newest file again (or `00_all_migrations.sql`) and everything is repaired. `90_tests.sql` catches it either way.
 
 The optional hourly stale-room cleanup (pg_cron) is described in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.md#stale-rooms-0008).
@@ -67,4 +76,4 @@ The full step-by-step setup is in [`DATABASE_SCHEMA.md`](../../DATABASE_SCHEMA.m
 bash supabase/sql-editor/build.sh
 ```
 
-Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql`, `04_voice.sql`, `05_rooms.sql`, `06_timer.sql` and `07_rules_scope.sql` are `0006`, `0007`, `0008`, `0009` and `0010` with an owner-facing header; keep each pair identical when either changes.
+Commit both the migrations and the regenerated `00_all_migrations.sql`. `03_game_ux.sql`, `04_voice.sql`, `05_rooms.sql`, `06_timer.sql`, `07_rules_scope.sql` and `08_room_call.sql` are `0006`, `0007`, `0008`, `0009`, `0010` and `0011` with an owner-facing header; keep each pair identical when either changes.

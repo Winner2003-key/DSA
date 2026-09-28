@@ -23,6 +23,7 @@ export {
   Lock,
   LogIn,
   Mic,
+  MicOff,
   Monitor,
   Moon,
   Play,

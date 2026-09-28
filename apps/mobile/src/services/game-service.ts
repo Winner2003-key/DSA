@@ -1,6 +1,7 @@
 import type { RealtimeStatus } from './realtime-sync';
 import type {
   BookSection,
+  CallAllowance,
   CreateSessionOptions,
   CreatedSession,
   GameState,
@@ -59,6 +60,21 @@ export interface GameService {
   rewind(sessionId: string, count: 1 | 2 | 3): Promise<GameState>;
   aiDecouvreurStep(sessionId: string): Promise<GameState>;
   abandon(sessionId: string): Promise<GameState>;
+
+  /**
+   * TIREUR, in a room played with Voix only: the app followed no question, so the
+   * Tireur says how the call ended. `true` is an ordinary discovery, `false`
+   * stops the game (« Pas trouvé »).
+   */
+  declareResult(sessionId: string, found: boolean): Promise<GameState>;
+
+  /**
+   * What a call may promise before a game starts: this player's minutes left
+   * today, the daily allowance, the longest a call may last, and whether the
+   * app's monthly budget still allows new calls. Read in the lobby and under the
+   * Voix choice, so no number is ever hard-coded in the UI.
+   */
+  getCallAllowance(): Promise<CallAllowance>;
 
   /**
    * "Rejouer" at the end of a room. The first call creates the new room (keeping

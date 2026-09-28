@@ -34,7 +34,9 @@ import { DsaError, toDsaError } from './errors';
 import type { GameService } from './game-service';
 import {
   DEFAULT_SETTINGS,
+  NO_CALL_ALLOWANCE,
   type BookSection,
+  type CallAllowance,
   type CreateSessionOptions,
   type CreatedSession,
   type GameSettings,
@@ -125,6 +127,8 @@ export function normalizeSettings(
     think_seconds: timed ? app.thinkSeconds : null,
     play_seconds: timed ? app.playSeconds : null,
     max_redraws: app.maxRedraws,
+    // A call needs two phones and a server, so an offline game never has one.
+    call_max_seconds: null,
     scope,
   };
 }
@@ -341,6 +345,9 @@ export class OfflineGameService implements GameService {
       redraws_used: session.previousSecrets.length,
       redraws_left: Math.max(0, session.settings.max_redraws - session.previousSecrets.length),
       scope_labels: scopeLabels(this.index, session.settings.scope),
+      // Rooms — and therefore calls — need the server.
+      call_started_at: null,
+      call_ends_at: null,
     };
   }
 
@@ -592,6 +599,13 @@ export class OfflineGameService implements GameService {
         found_in_seconds: found,
       },
       secret,
+      end_event: !OfflineGameService.isOver(state.status)
+        ? null
+        : state.status === 'DISCOVERED'
+          ? 'FOUND'
+          : state.status === 'TIME_UP'
+            ? 'TIME_UP'
+            : 'ABANDONED',
     };
   }
 
@@ -615,6 +629,16 @@ export class OfflineGameService implements GameService {
       play_seconds: this.appSettings.playSeconds,
       max_redraws: this.appSettings.maxRedraws,
     };
+  }
+
+  async declareResult(): Promise<GameState> {
+    // Only a room played with Voix ends this way, and rooms need the server.
+    throw new DsaError('WRONG_MODE');
+  }
+
+  async getCallAllowance(): Promise<CallAllowance> {
+    // No call is possible offline, so Voix in a room is never offered.
+    return { ...NO_CALL_ALLOWANCE };
   }
 
   async getSolutionPath(sessionId: string): Promise<SolutionPath> {

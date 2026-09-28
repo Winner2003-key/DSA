@@ -1,9 +1,12 @@
 /**
  * Brief S7b §8 and the phrasing rule (GAME_RULES "How questions are said", §10):
- * - in a room played with Voix, each phone speaks the other player's move — the
- *   question on the Tireur's phone, the answer on the Découvreur's — so two phones
- *   can play by voice before live audio (S7c);
+ * - since S7c a room played with Voix is a **live call** and recognizes nothing
+ *   (GAME_RULES "Voix in a room is a call"), so neither phone opens the
+ *   microphone or speaks the other player's move there. The two cases that
+ *   asserted the opposite are replaced by the one below;
  * - no UI string and no TTS utterance of a voice game contains "Est-ce" (snapshot).
+ *   That still covers AI_TIREUR, AI_DECOUVREUR and LOCAL, where Voix is speech
+ *   recognition and is unchanged.
  */
 import React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
@@ -22,18 +25,19 @@ jest.mock('@/speech/recorder', () => require('./fake-recorder'));
 beforeEach(resetVoiceHarness);
 afterEach(closeVoiceHarness);
 
-/** The same game, seen as one phone of a VOICE room holding `role`. */
+/** The same game, seen as one phone of a VOICE room holding `role` — so, a call. */
 function asRoomPhone(game: UseGame, role: 'TIREUR' | 'DECOUVREUR'): UseGame {
   const state = game.state as GameState;
   return {
     ...game,
     isLocal: false,
     isRoom: true,
+    isCall: true,
     myRoles: [role],
     state: {
       ...state,
       mode: 'HUMAN_VS_HUMAN',
-      settings: { input_mode: 'VOICE', timed: false, think_seconds: null, play_seconds: null, max_redraws: 2, scope: [] },
+      settings: { input_mode: 'VOICE', timed: false, think_seconds: null, play_seconds: null, max_redraws: 2, call_max_seconds: 300, scope: [] },
       room_code: 'DSA-4821',
       players: [
         { role: 'TIREUR', display_name: 'Awa', is_ai: false, is_me: role === 'TIREUR' },
@@ -52,37 +56,25 @@ async function localGame() {
   return { service, sessionId, hook };
 }
 
-it('the Tireur’s phone speaks the question that arrives from the other phone', async () => {
+it('a room played with Voix opens no microphone: it is a call, not recognition', async () => {
   const { service, sessionId, hook } = await localGame();
-  const screen = await renderWithProviders(<TireurView sessionId={sessionId} game={asRoomPhone(hook.result.current, 'TIREUR')} />);
-  expect(spoken()).toEqual([]);
 
-  // The Découvreur's phone asks; the push reaches this phone.
+  // The Tireur's phone keeps the card and the answers; the recorder is not there.
+  // (In the app the call screen replaces this table entirely — `views/call-play.tsx`.)
+  const tireur = await renderWithProviders(
+    <TireurView sessionId={sessionId} game={asRoomPhone(hook.result.current, 'TIREUR')} />,
+  );
+  expect(tireur.queryByTestId('tireur-voice')).toBeNull();
+  await tireur.unmount();
+
   await act(async () => {
     await service.ask(sessionId);
     await hook.result.current.refresh();
   });
-  await screen.rerender(<TireurView sessionId={sessionId} game={asRoomPhone(hook.result.current, 'TIREUR')} />);
-  await waitFor(() => expect(spoken()).toEqual(['Ancien ?']));
-  expect(screen.getByTestId('voice-button-idle')).toBeTruthy();
-});
 
-it('the Découvreur’s phone speaks the answer that arrives from the other phone', async () => {
-  const { service, sessionId, hook } = await localGame();
-  await act(async () => {
-    await service.ask(sessionId);
-    await hook.result.current.refresh();
-  });
-  const screen = await renderWithProviders(<DecouvreurView game={asRoomPhone(hook.result.current, 'DECOUVREUR')} />);
-  expect(screen.getByTestId('voice-button-disabled')).toBeTruthy();
-
-  await act(async () => {
-    await service.answer(sessionId, 'OUI');
-    await hook.result.current.refresh();
-  });
-  await screen.rerender(<DecouvreurView game={asRoomPhone(hook.result.current, 'DECOUVREUR')} />);
-  await waitFor(() => expect(spoken()).toEqual(['Oui.']));
-  expect(screen.getByTestId('voice-button-idle')).toBeTruthy();
+  // The Découvreur's phone, the same: nothing is recorded or transcribed.
+  const decouvreur = await renderWithProviders(<DecouvreurView game={asRoomPhone(hook.result.current, 'DECOUVREUR')} />);
+  expect(decouvreur.queryByTestId('decouvreur-voice')).toBeNull();
 });
 
 it('says nothing with "Est-ce" in a voice game, on screen or aloud (snapshot)', async () => {

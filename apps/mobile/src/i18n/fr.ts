@@ -187,6 +187,58 @@ export const fr = {
     scopeSummary: (labels: string[]) => `Partie : ${labels.join(', ')}`,
   },
 
+  /**
+   * The live call of a room played with Voix (GAME_RULES "Voix in a room is a
+   * call"). Nothing is recognized here: the players talk, and the Tireur says how
+   * the game ended.
+   */
+  call: {
+    // The lobby and the Voix choice, before the game starts. Never hard-coded
+    // numbers: they come from dsa_call_allowance.
+    limit: (max: string, left: string) => `Appel limité à ${max} · il te reste ${left} d’appel aujourd’hui`,
+    unavailableDaily: 'Tu n’as plus de minutes d’appel aujourd’hui. Joue avec Boutons.',
+    unavailableBudget: 'Les appels ne sont pas disponibles en ce moment. Joue avec Boutons.',
+    voiceIsCall: 'En Voix, vous êtes en appel : vous vous parlez pour de vrai.',
+
+    // The call screen.
+    title: 'Vous êtes en appel',
+    connecting: 'Connexion…',
+    online: 'En ligne',
+    reconnecting: 'Reconnexion…',
+    failed: 'L’appel a échoué',
+    retry: 'Réessayer',
+    waitingOther: (name: string) => `On attend ${name}…`,
+    withPlayer: (name: string, role: string) => `${name} · ${role}`,
+    micOpen: 'Micro ouvert',
+    micMuted: 'Micro coupé',
+    speaking: 'parle',
+    quiet: 'écoute',
+    /** The Découvreur has no button to press: the book is the interface. */
+    decouvreurHint: 'Pose les questions du livre. Le Tireur dira quand tu as trouvé.',
+    tireurHint: 'Réponds à voix haute. Quand ton ami dit le bon nom, touche « Trouvé ».',
+    found: 'Trouvé',
+    notFound: 'Pas trouvé',
+    foundConfirm: 'Ton ami a trouvé le nom ?',
+    foundConfirmBody: 'La partie se termine et le chemin du livre s’affiche.',
+    foundConfirmYes: 'Oui, c’est trouvé',
+    notFoundConfirm: 'Arrêter sans avoir trouvé ?',
+    notFoundConfirmBody: 'La partie se termine et le nom sera révélé.',
+    notFoundConfirmYes: 'Oui, pas trouvé',
+    /** Warnings before the end of the call: no countdown, just these two. */
+    endsIn: (left: string) => `L’appel se termine dans ${left}`,
+    oneMinute: '1 minute',
+    thirtySeconds: '30 secondes',
+    /** Expo Go has no WebRTC: the game still ends with Trouvé / Pas trouvé. */
+    needsDevBuild:
+      'L’appel nécessite l’application DSA installée. Sur ce téléphone, tu peux jouer depuis le navigateur.',
+    micDenied: 'Le micro est refusé. Autorise le micro, puis réessaie.',
+    connectFailed: 'La connexion à l’appel n’a pas marché.',
+    /** The result screen of a call game. */
+    resultTimeUp: 'Temps d’appel écoulé',
+    resultNotFound: 'Pas trouvé',
+    resultNoStats: 'L’application n’a pas suivi les questions : elle montre le chemin du livre.',
+  },
+
   voice: {
     // Talking: like a voice note. Hold the microphone, or slide up to keep it on.
     ready: 'Maintiens le micro et parle',
@@ -505,6 +557,10 @@ export const fr = {
     TIME_UP: 'Le temps est écoulé.',
     GAME_STARTED: 'La partie a commencé : le nom ne peut plus changer.',
     NO_REDRAW_LEFT: 'Tu as déjà changé de nom le nombre de fois permis.',
+    // The call limits (GAME_RULES "Call limits"). Only ever raised when a call is
+    // about to start; a game already running is never cut.
+    CALL_DAILY_LIMIT: 'Plus de minutes d’appel aujourd’hui pour l’un des joueurs. Joue avec Boutons.',
+    CALL_BUDGET_EXHAUSTED: 'Les appels ne sont pas disponibles en ce moment. Joue avec Boutons.',
     // Client-side codes.
     CONFIG_MISSING: 'L’application n’est pas configurée : il manque l’adresse du serveur.',
     PERMISSION_DENIED: 'Le serveur a refusé l’accès. Reconnecte-toi.',

@@ -12,7 +12,9 @@ What you'll do, in order:
 | 4. Deploy the function | Supabase dashboard **or** CLI | 5 min |
 | 5. Test it with curl | your terminal | 5 min |
 
-Sections 6 and 7 cover costs and troubleshooting.
+Sections 6 and 7 cover costs and troubleshooting. A room played with **Voix** is a
+different thing — a live call between the two phones, with nothing transcribed —
+and has its own section at the end: **"Appel dans une salle"**.
 
 > **Never paste a key or token into a chat (including Claude), a commit, an issue, or a Vercel variable.** They go in exactly two places: the Supabase secrets page (step 2), and, only if you want to run the local smoke test, the gitignored file `supabase/functions/.env.local`.
 
@@ -205,3 +207,139 @@ What this means for DSA: each spoken answer is one request, so on Groq's free pl
 | Transcript in the wrong language on the fallback | Hugging Face's endpoint has no language parameter, so very short clips can be detected as another language. Groq always gets `language=fr`. |
 | CLI: `Cannot find project ref` | Add `--project-ref <ref>` (step 4b), or run `npx supabase link --project-ref <ref>` once. |
 | CLI: asks for Docker | Add `--use-api`. Update the CLI with `npx supabase@latest …` if the flag is unknown. |
+
+---
+
+# Appel dans une salle (S7c)
+
+A room played with **Voix** is a **live call** between the two phones: each player
+hears the other's own voice, and nothing is transcribed
+(`GAME_RULES.md` "Voix in a room is a call"). The Tireur ends the game with
+**Trouvé** or **Pas trouvé**. The provider is **LiveKit Cloud** (free tier: 5 000
+participant-minutes a month; each phone counts as one participant).
+
+This is separate from everything above: speech recognition (`transcribe`) stays
+the Voix mode of the other modes — against the application, and two players on one
+phone. Nothing here changes it.
+
+## The owner's steps, in order
+
+| Step | Where | Time |
+|---|---|---|
+| 1. Create the LiveKit project and its key | cloud.livekit.io | 5 min |
+| 2. Store the three values as Supabase secrets | Supabase dashboard | 2 min |
+| 3. Deploy the `livekit-token` function | Supabase dashboard **or** CLI | 5 min |
+| 4. Run `08_room_call.sql` | Supabase SQL Editor | 2 min |
+| 5. Build and install the app (calls need a real build) | EAS | 20 min |
+
+### 1. LiveKit keys
+
+1. Go to <https://cloud.livekit.io> and sign in. Create a project (any region
+   close to the players).
+2. **Settings → Keys → Create key**. Copy the three values:
+   `wss://<something>.livekit.cloud` (the project URL), the **API key**, and the
+   **API secret**. The secret is shown once.
+
+> The same rule as the Groq key: **never** paste these into a chat (including
+> Claude), a commit, an issue, or a Vercel variable. They belong only in the
+> Supabase secrets page.
+
+### 2. Supabase secrets
+
+Dashboard → **Edge Functions → Secrets** (or **Project Settings → Edge
+Functions**) → add three secrets, with these exact names:
+
+| Name | Value |
+|---|---|
+| `LIVEKIT_URL` | `wss://<something>.livekit.cloud` |
+| `LIVEKIT_API_KEY` | the API key |
+| `LIVEKIT_API_SECRET` | the API secret |
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are provided
+by Supabase; you don't add them. If any of the three LiveKit secrets is missing,
+the function answers `503 DSA_CALL_NOT_CONFIGURED` and the app says the call is
+not configured yet — Boutons keeps working.
+
+### 3. Deploy `livekit-token`
+
+The same two routes as `transcribe`, with **Verify JWT on**.
+
+**(a) Dashboard editor.** Edge Functions → **Deploy a new function** → **Via
+Editor**, name it exactly **`livekit-token`**, delete the template, and paste all
+of `supabase/functions/livekit-token/dashboard-single-file.ts`. Deploy, then check
+that **Verify JWT** is on.
+
+**(b) CLI**, from the repo root:
+
+```bash
+npx supabase functions deploy livekit-token --project-ref <your-project-ref> --use-api
+```
+
+If you changed `core.ts` or `index.ts`, regenerate the single file first with
+`npm run voice:bundle-function` (it writes both functions' single files).
+
+### 4. The SQL
+
+SQL Editor → paste all of `supabase/sql-editor/08_room_call.sql` → **Run**.
+Expected: "Success. No rows returned". Then run `90_tests.sql` and expect
+`ALL DSA TESTS PASSED`. It is safe to run again.
+
+This adds the call limits to **Réglages** in the admin app: the longest a call may
+last (5 min), the minutes per player per day (40), the app's monthly budget
+(4 500 = 90 % of the free 5 000), and the timezone whose midnight resets the day.
+They are only checked when a call **starts** — creating or joining a Voix room, "Je
+suis prêt", and "Nom suivant". **A game already being played is never cut** except
+at its own call time.
+
+### 5. A real build (the important part)
+
+**Calls do not work in Expo Go**: LiveKit needs native WebRTC code. In Expo Go the
+call screen says « L'appel nécessite l'application DSA installée. Sur ce téléphone,
+tu peux jouer depuis le navigateur. », and Trouvé / Pas trouvé still work.
+
+**Android** (no paid account needed):
+
+```bash
+cd apps/mobile
+eas build -p android --profile development   # ~15 min, gives an APK link
+# install the APK on both phones, then:
+npx expo start --dev-client
+```
+
+**iPhone** needs a paid Apple Developer account:
+
+```bash
+cd apps/mobile
+eas device:create                                   # register each iPhone once
+eas build -p ios --profile development-device       # ios.simulator: false
+```
+
+**Or skip the build entirely:** open the web app in **Safari** (iPhone) or Chrome
+(Android) — the browser has WebRTC built in, so a call between a phone browser and
+an installed app works. The page must be served over **https** (Vercel is).
+
+## Costs and what protects them
+
+| | Free tier | What DSA does |
+|---|---|---|
+| LiveKit Cloud | 5 000 participant-minutes / month | A 2-minute game costs 4 minutes (two phones). The monthly budget setting refuses new calls at 4 500, leaving a margin. |
+| Per player | — | 40 minutes a day by default, counted only for minutes actually played. |
+| Per call | — | 5 minutes maximum, shortened if a player has less left today. |
+
+Usage is recorded in `call_usage` when a game ends: one row per player per game,
+readable only by that player. To reset a test day: SQL Editor →
+`delete from public.call_usage;`.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `401 Invalid JWT` (not a `DSA_CALL_…` body) | Supabase's gateway refused the token first. The app sends the signed-in user's token; if you are testing with curl, use a user access token, not the anon key. |
+| `503 DSA_CALL_NOT_CONFIGURED` | A LiveKit secret is missing or misspelled (step 2). The **Logs** tab says `"step":"livekit_env"`, or `"supabase_env"` if the service-role key is unavailable. |
+| `403 DSA_CALL_NOT_STARTED` | The call has not opened yet: the Tireur has not pressed "Je suis prêt". Normal before the start. |
+| `403 DSA_CALL_OVER` | The game is over, or the call time has passed. The app goes to the result screen by itself. |
+| `403 DSA_CALL_WRONG_MODE` | That game is not a Voix room. Nothing to fix. |
+| The app says « Voix » is unavailable before the game | A player has under a minute left today (`DSA_CALL_DAILY_LIMIT`) or the monthly budget is used up (`DSA_CALL_BUDGET_EXHAUSTED`). Raise the numbers in Réglages, or wait for the day to reset. |
+| « L'appel nécessite l'application DSA installée » | Expo Go, or a browser without WebRTC. Use the development build, or the web app over https (step 5). |
+| Connected, but neither player hears the other | Check both phones show « En ligne » and neither is « Micro coupé »; then check the microphone permission in the phone's settings. On the web, https is required. |
+| Only one phone connects | Both must be in the **same game**: the room is `dsa-<session_id>`. Check the LiveKit dashboard's **Sessions** tab, which shows the room and its participants. |

@@ -26,13 +26,16 @@ import { useTheme } from '@/theme';
  * On a discovery the name lands with a short swell and a brass rule drawn under
  * it — one small moment, then stillness.
  */
-export function ResultHeader({ reveal }: { reveal: RevealedPath }) {
+export function ResultHeader({ reveal, call = false }: { reveal: RevealedPath; call?: boolean }) {
   const theme = useTheme();
   const reduceMotion = useReducedMotion();
   const discovered = reveal.status === 'DISCOVERED';
   const timeUp = reveal.status === 'TIME_UP';
   const secret = reveal.secret;
   const description = secret ? cardDescription(secret) : null;
+  // A call game ended the way the Tireur said, or because the call time ran out.
+  const callTimeUp = reveal.end_event === 'CALL_TIME_UP';
+  const notFound = reveal.end_event === 'NOT_FOUND';
 
   const swell = useSharedValue(discovered && !reduceMotion ? 0.6 : 1);
   const rule = useSharedValue(discovered && !reduceMotion ? 0 : 1);
@@ -52,7 +55,9 @@ export function ResultHeader({ reveal }: { reveal: RevealedPath }) {
   const ruleMotion = useAnimatedStyle(() => ({ transform: [{ scaleX: rule.value }] }));
 
   const stats = reveal.stats;
-  const lines = stats
+  // The app followed no question in a call, so there is nothing to count
+  // (GAME_RULES "Voix in a room is a call"): the book's path is the whole screen.
+  const lines = stats && !call
     ? [
         `${stats.questions} ${stats.questions === 1 ? fr.result.statQuestion : fr.result.statQuestions}`,
         `${stats.non} ${fr.result.statNon}`,
@@ -69,11 +74,24 @@ export function ResultHeader({ reveal }: { reveal: RevealedPath }) {
   return (
     <View style={{ gap: theme.space.xs }}>
       <AppText variant="title" weight="bold" tight tone={discovered ? 'ink' : 'soft'} testID="result-title">
-        {discovered ? `🎉 ${fr.result.title}` : timeUp ? `⏳ ${fr.result.timeUp}` : fr.result.abandoned}
+        {discovered
+          ? `🎉 ${fr.result.title}`
+          : callTimeUp
+            ? `⏳ ${fr.call.resultTimeUp}`
+            : notFound
+              ? fr.call.resultNotFound
+              : timeUp
+                ? `⏳ ${fr.result.timeUp}`
+                : fr.result.abandoned}
       </AppText>
-      {timeUp ? (
+      {timeUp && !callTimeUp ? (
         <AppText variant="body" tone="soft" testID="result-time-up-hint">
           {fr.result.timeUpHint}
+        </AppText>
+      ) : null}
+      {call ? (
+        <AppText variant="small" tone="faint" testID="result-call-hint">
+          {fr.call.resultNoStats}
         </AppText>
       ) : null}
       {secret ? (

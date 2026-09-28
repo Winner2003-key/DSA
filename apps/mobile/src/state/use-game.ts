@@ -6,7 +6,7 @@ import { getGameService } from '@/services';
 import { DsaError, toDsaError } from '@/services/errors';
 import type { GameService } from '@/services/game-service';
 import { FALLBACK_POLL_MS, type RealtimeStatus } from '@/services/realtime-sync';
-import type { GameState } from '@/services/types';
+import { isCallGame, type GameState } from '@/services/types';
 import { useCountdown, type Countdown } from './use-countdown';
 import { buildExchanges, pruneGuesses, type Exchange, type GuessRecord } from './exchanges';
 
@@ -101,6 +101,20 @@ export interface UseGame {
   rewoundTo: string | null;
   /** A room (HUMAN_VS_HUMAN) that is still open: it is kept in sync over Realtime. */
   isRoom: boolean;
+  /**
+   * This room is played with Voix, so it is a live call and no question is
+   * transcribed (GAME_RULES "Voix in a room is a call").
+   */
+  isCall: boolean;
+  /** `Date.now()` when the current state arrived: the call clock measures from here. */
+  receivedAt: number;
+  /**
+   * TIREUR, in a call only: « Trouvé » / « Pas trouvé ». The app followed no
+   * question, so the Tireur is the one who says how the game ended.
+   */
+  declareResult: (found: boolean) => Promise<void>;
+  /** Lets the call's own countdown turn the game into TIME_UP at `call_ends_at`. */
+  checkTime: () => void;
   /** The push channel, for a room; null otherwise. */
   realtimeStatus: RealtimeStatus | null;
   /** A room lost its connection for a while (channel down, or a refresh failed for lack of network). */
@@ -493,6 +507,13 @@ export function useGame(sessionId: string | null, options: UseGameOptions = {}):
     otherRedrew,
     rewoundTo,
     isRoom,
+    isCall: state !== null && isCallGame(state),
+    receivedAt,
+    declareResult: useCallback(
+      (found: boolean) => run((id) => service.declareResult(id, found), true),
+      [run, service],
+    ),
+    checkTime: onExpire,
     realtimeStatus: isRoom ? realtimeStatus : null,
     connectionLost: isRoom && (channelDown || networkDown),
     refresh,

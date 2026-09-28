@@ -8,9 +8,10 @@ import { describeRoom, OTHER_GONE_GRACE_MS, trackAbsence } from '@/rooms/room-ph
 import { useRoom } from '@/rooms/use-room';
 import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
+import { CallPlay } from './call-play';
 import { GameTable } from './game-table';
 import { LobbyView } from './lobby-view';
-import { Clock, Flag } from '@/components';
+import { Clock, Flag, GameHeader } from '@/components';
 
 export interface RoomTableProps {
   sessionId: string;
@@ -130,10 +131,21 @@ export function RoomTable({ sessionId, game, onCancelled, rematchOf = null, grac
     );
   }
 
+  // A room played with Voix is a live call from the end of Tireur-ready onwards:
+  // the call screen replaces the table, since the app follows no question there.
+  const onCall = game.isCall && view.phase !== 'TIREUR_READY';
+
   return (
     <View style={{ gap: theme.space.md }}>
       {banners}
-      <GameTable sessionId={sessionId} game={game} />
+      {onCall ? (
+        <>
+          <GameHeader game={game} viewRole={game.myRoles[0] ?? 'DECOUVREUR'} />
+          <CallPlay sessionId={sessionId} game={game} />
+        </>
+      ) : (
+        <GameTable sessionId={sessionId} game={game} />
+      )}
     </View>
   );
 }

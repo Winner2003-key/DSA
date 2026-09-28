@@ -20,6 +20,10 @@ describe('the bounds', () => {
       thinkSeconds: { min: 10, max: 600 },
       playSeconds: { min: 30, max: 1800 },
       maxRedraws: { min: 0, max: 5 },
+      // The call of a Voix room (GAME_RULES "Call limits").
+      callMaxSeconds: { min: 30, max: 3600 },
+      callDailyMinutesPerPlayer: { min: 0, max: 1440 },
+      callMonthlyBudgetMinutes: { min: 0, max: 1000000 },
     });
   });
 
@@ -44,7 +48,9 @@ describe('the bounds', () => {
   });
 
   it('names every field that is wrong, not just the first', () => {
-    expect(validateSettings({ thinkSeconds: 5, playSeconds: 5, maxRedraws: 9 })).toEqual({
+    expect(
+      validateSettings({ ...DEFAULT_APP_SETTINGS, thinkSeconds: 5, playSeconds: 5, maxRedraws: 9 }),
+    ).toEqual({
       thinkSeconds: 'La valeur doit être comprise entre 10 et 600.',
       playSeconds: 'La valeur doit être comprise entre 30 et 1800.',
       maxRedraws: 'La valeur doit être comprise entre 0 et 5.',
@@ -68,12 +74,12 @@ describe('the mock repository', () => {
     const initial = await repository.load();
     expect(initial).toMatchObject({ thinkSeconds: 40, playSeconds: 120, maxRedraws: 2 });
 
-    const saved = await repository.save({ thinkSeconds: 90, playSeconds: 300, maxRedraws: 4 });
+    const saved = await repository.save({ ...DEFAULT_APP_SETTINGS, thinkSeconds: 90, playSeconds: 300, maxRedraws: 4 });
     expect(saved).toMatchObject({ thinkSeconds: 90, playSeconds: 300, maxRedraws: 4 });
     expect(saved.updatedAt).not.toBeNull();
     expect(await repository.load()).toMatchObject({ thinkSeconds: 90, playSeconds: 300, maxRedraws: 4 });
 
-    await expect(repository.save({ thinkSeconds: 5, playSeconds: 300, maxRedraws: 4 })).rejects.toBeInstanceOf(
+    await expect(repository.save({ ...DEFAULT_APP_SETTINGS, thinkSeconds: 5, playSeconds: 300, maxRedraws: 4 })).rejects.toBeInstanceOf(
       RepositoryError,
     );
     // …and a refused save changes nothing.

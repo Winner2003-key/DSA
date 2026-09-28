@@ -19,6 +19,21 @@
         "EXPO_PUBLIC_DSA_GRAPH_SLUG": "livre"
       }
     },
+    "development-device": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
+      "ios": {
+        "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_DSA_GRAPH_SLUG": "livre"
+      }
+    },
     "preview": {
       "distribution": "internal",
       "channel": "preview",

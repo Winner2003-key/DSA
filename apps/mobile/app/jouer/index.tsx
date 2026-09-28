@@ -29,7 +29,8 @@ import { fr } from '@/i18n/fr';
 import { cleanPlayerName, loadPlayerName, MAX_PLAYER_NAME, savePlayerName } from '@/rooms/player-name';
 import { GRAPH_SLUG, OFFLINE_ENABLED, getGameService, isPlayable } from '@/services';
 import { DsaError, toDsaError } from '@/services/errors';
-import { FALLBACK_TIMER_DEFAULTS, type BookSection, type InputMode, type TimerDefaults } from '@/services/types';
+import { FALLBACK_TIMER_DEFAULTS, callUsable, type BookSection, type InputMode, type TimerDefaults } from '@/services/types';
+import { useCallAllowance } from '@/state/use-call-allowance';
 import { useTheme } from '@/theme';
 import type { LucideIcon } from '@/components';
 
@@ -120,6 +121,33 @@ export default function PreparerScreen() {
   };
 
   const scopeLabels = sections.filter((s) => scope.includes(s.node_id)).map((s) => s.label);
+
+  /**
+   * In a room, Voix means a live call between the two phones, so its limits
+   * belong on this screen: how long a call may last and how much is left today
+   * (GAME_RULES "Call limits"). When no call can be held, Voix is disabled, the
+   * reason is said, and Boutons is preselected — Boutons always works.
+   */
+  const allowance = useCallAllowance(forRoom);
+  const voiceBlocked = forRoom && allowance !== null && !callUsable(allowance);
+  const voiceHint = !forRoom
+    ? inputMode === 'VOICE'
+      ? fr.setup.on
+      : fr.setup.off
+    : allowance === null
+      ? fr.app.loading
+      : !allowance.available
+        ? fr.call.unavailableBudget
+        : allowance.minutes_left_today < 1
+          ? fr.call.unavailableDaily
+          : fr.call.limit(
+              fr.timer.duration(allowance.max_seconds),
+              fr.timer.duration(allowance.minutes_left_today * 60),
+            );
+
+  useEffect(() => {
+    if (voiceBlocked) setInputMode('BUTTONS');
+  }, [voiceBlocked]);
 
   const start = async () => {
     if (starting) return;
@@ -234,9 +262,9 @@ export default function PreparerScreen() {
               testID="input-voice"
               icon={Mic}
               title={fr.setup.voice}
-              hint={inputMode === 'VOICE' ? fr.setup.on : fr.setup.off}
+              hint={voiceHint}
               checked={inputMode === 'VOICE'}
-              disabled={starting}
+              disabled={starting || voiceBlocked}
               onPress={() => setInputMode((m) => (m === 'VOICE' ? 'BUTTONS' : 'VOICE'))}
             />
             <CheckCard

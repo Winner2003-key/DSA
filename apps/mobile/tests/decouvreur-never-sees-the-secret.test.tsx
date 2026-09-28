@@ -10,7 +10,7 @@ import { setGameService } from '@/services';
 import { clearNameCacheForTests } from '@/state/use-names';
 import { useGame } from '@/state/use-game';
 import type { GameService } from '@/services/game-service';
-import type { GameState, RevealedPath, Secret } from '@/services/types';
+import { NO_CALL_ALLOWANCE, type GameState, type RevealedPath, type Secret } from '@/services/types';
 import { DecouvreurView } from '@/views/decouvreur-view';
 import { TireurView } from '@/views/tireur-view';
 
@@ -127,7 +127,14 @@ class FakeService implements GameService {
     return leakyState();
   }
   async getRevealedPath(): Promise<RevealedPath> {
-    return { status: 'PLAYING', winner: null, path: [], stats: null, secret: null };
+    return { status: 'PLAYING', winner: null, path: [], stats: null, secret: null, end_event: null };
+  }
+  /** A call game ends this way; it still never hands the Découvreur the name. */
+  async declareResult(): Promise<GameState> {
+    return leakyState();
+  }
+  async getCallAllowance() {
+    return { ...NO_CALL_ALLOWANCE };
   }
   async listNames(): Promise<string[]> {
     return ['ADAM', SECRET_NAME, 'DAVID'];

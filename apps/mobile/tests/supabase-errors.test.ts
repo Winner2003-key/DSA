@@ -175,6 +175,8 @@ describe('SupabaseGameService call shapes', () => {
       think_seconds: 40,
       play_seconds: 120,
       max_redraws: 2,
+      // Not a Voix game, so no call length was copied into it.
+      call_max_seconds: null,
       scope: [],
     });
   });
@@ -273,7 +275,15 @@ describe('SupabaseGameService call shapes', () => {
       pending_guess: null,
       path: [],
       players: [],
-      settings: { input_mode: 'BUTTONS', timed: false, think_seconds: null, play_seconds: null, max_redraws: 0, scope: [] },
+      settings: {
+        input_mode: 'BUTTONS',
+        timed: false,
+        think_seconds: null,
+        play_seconds: null,
+        max_redraws: 0,
+        call_max_seconds: null,
+        scope: [],
+      },
       tireur_ready: true,
       room_code: null,
       timed: false,
@@ -284,6 +294,9 @@ describe('SupabaseGameService call shapes', () => {
       redraws_used: 0,
       redraws_left: 0,
       scope_labels: [],
+      // Such a server predates 08_room_call.sql too: no call is ever joined.
+      call_started_at: null,
+      call_ends_at: null,
     });
   });
 });

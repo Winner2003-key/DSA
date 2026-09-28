@@ -12,9 +12,15 @@ import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
 import { X } from '@/components';
 
-/** Voice was chosen for this game ("Façon de jouer : Voix"). */
+/**
+ * Voice was chosen for this game ("Façon de jouer : Voix") **and** this game
+ * recognizes speech. In a room, Voix is a live call instead: nothing is
+ * transcribed, no microphone is recorded, and the Tireur ends the game
+ * (GAME_RULES "Voix in a room is a call", `views/call-play.tsx`). Speech
+ * recognition stays the Voix mode of the other modes.
+ */
 export function isVoiceGame(game: UseGame): boolean {
-  return game.state?.settings?.input_mode === 'VOICE';
+  return game.state?.settings?.input_mode === 'VOICE' && !game.isCall;
 }
 
 /**

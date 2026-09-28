@@ -5,7 +5,10 @@ import { ensureRealtimeAuth, ensureSignedIn, getSupabase } from './supabase';
 import {
   DEFAULT_SETTINGS,
   FALLBACK_TIMER_DEFAULTS,
+  NO_CALL_ALLOWANCE,
+  asEndEvent,
   type BookSection,
+  type CallAllowance,
   type CreateSessionOptions,
   type CreatedSession,
   type GameSettings,
@@ -126,6 +129,8 @@ function asSettings(raw: unknown): GameSettings {
     think_seconds: int('think_seconds', null),
     play_seconds: int('play_seconds', null),
     max_redraws: int('max_redraws', 0) ?? 0,
+    // Absent outside a Voix game, and on a server that predates 08_room_call.sql.
+    call_max_seconds: int('call_max_seconds', null),
     scope: asStringList(r.scope),
   };
 }
@@ -240,6 +245,9 @@ export class SupabaseGameService implements GameService {
       redraws_used: typeof raw.redraws_used === 'number' ? raw.redraws_used : 0,
       redraws_left: typeof raw.redraws_left === 'number' ? raw.redraws_left : 0,
       scope_labels: asStringList(raw.scope_labels),
+      // A server without 08_room_call.sql sends neither: no call is ever joined.
+      call_started_at: asIso(raw.call_started_at),
+      call_ends_at: asIso(raw.call_ends_at),
     };
   }
 
@@ -339,6 +347,30 @@ export class SupabaseGameService implements GameService {
     return SupabaseGameService.asState(await this.call('dsa_abandon', { p_session_id: sessionId }));
   }
 
+  async declareResult(sessionId: string, found: boolean): Promise<GameState> {
+    return SupabaseGameService.asState(
+      await this.call('dsa_declare_result', { p_session_id: sessionId, p_found: found }),
+    );
+  }
+
+  async getCallAllowance(): Promise<CallAllowance> {
+    let raw: Record<string, unknown> | null;
+    try {
+      raw = (await this.call('dsa_call_allowance')) as Record<string, unknown> | null;
+    } catch {
+      // A server that has not run 08_room_call.sql has no such RPC: Voix in a
+      // room is simply not offered, and Boutons is unaffected.
+      return NO_CALL_ALLOWANCE;
+    }
+    const n = (key: string) => (raw && typeof raw[key] === 'number' ? (raw[key] as number) : 0);
+    return {
+      minutes_left_today: n('minutes_left_today'),
+      daily_minutes: n('daily_minutes'),
+      max_seconds: n('max_seconds'),
+      available: raw?.available === true,
+    };
+  }
+
   async getRevealedPath(sessionId: string): Promise<RevealedPath> {
     const data = (await this.call('dsa_get_revealed_path', { p_session_id: sessionId })) as
       | Partial<RevealedPath>
@@ -350,6 +382,7 @@ export class SupabaseGameService implements GameService {
       path: asPath(data.path),
       stats: asStats(data.stats),
       secret: asSecret(data.secret as Partial<SecretRow> | null),
+      end_event: asEndEvent((data as { end_event?: unknown }).end_event),
     };
   }
 

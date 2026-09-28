@@ -22,6 +22,7 @@ const reveal = (over: Partial<RevealedPath> = {}): RevealedPath => ({
   path: [],
   stats: makeStats({ questions: 7, non: 1 }),
   secret: { node_id: 'n-cain', name: 'CAÏN', description: 'Le meurtrier · LIE A ADAM', has_homonyms: false },
+  end_event: 'FOUND',
   ...over,
 });
 

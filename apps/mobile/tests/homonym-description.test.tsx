@@ -24,6 +24,7 @@ const reveal = (secret: Secret): RevealedPath => ({
   path: [],
   stats: makeStats({ questions: 7, non: 1 }),
   secret,
+  end_event: 'FOUND',
 });
 
 describe('the Tireur card', () => {

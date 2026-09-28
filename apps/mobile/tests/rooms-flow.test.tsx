@@ -11,7 +11,7 @@ import { resetRoomsForTests } from '@/rooms/room-channel';
 import { setGameService } from '@/services';
 import type { GameService } from '@/services/game-service';
 import type { RealtimeStatus } from '@/services/realtime-sync';
-import type { GameState, Secret } from '@/services/types';
+import { NO_CALL_ALLOWANCE, type GameState, type Secret } from '@/services/types';
 import { useGame } from '@/state/use-game';
 import { RoomTable } from '@/views/room-table';
 
@@ -104,6 +104,8 @@ class RoomServer {
       redraws_used: 0,
       redraws_left: 2,
       scope_labels: [],
+      call_started_at: null,
+      call_ends_at: null,
     };
   }
 
@@ -156,7 +158,9 @@ class RoomServer {
         return server.stateFor(user);
       },
       rematch: async () => ({ sessionId: 's2', roomCode: 'DSA-5678', role: 'TIREUR' }),
-      getRevealedPath: async () => ({ status: server.status, winner: null, path: [], stats: null, secret: null }),
+      getRevealedPath: async () => ({ status: server.status, winner: null, path: [], stats: null, secret: null, end_event: null }),
+      declareResult: state,
+      getCallAllowance: async () => ({ ...NO_CALL_ALLOWANCE }),
       listNames: async () => ['ADAM', 'CAÏN'],
       subscribe: (_sessionId, onChange, onStatus) => {
         server.listeners.add(onChange);

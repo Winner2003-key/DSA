@@ -65,6 +65,8 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
     redraws_used: 0,
     redraws_left: 2,
     scope_labels: [],
+    call_started_at: null,
+    call_ends_at: null,
     ...overrides,
   };
 }

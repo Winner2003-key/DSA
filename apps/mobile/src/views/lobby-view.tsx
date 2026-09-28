@@ -6,7 +6,8 @@ import { fr } from '@/i18n/fr';
 import type { RoomView } from '@/rooms/room-phase';
 import { shareRoom } from '@/rooms/share';
 import { joinUrlFor } from '@/rooms/use-room';
-import type { GameState } from '@/services/types';
+import { isCallGame, type GameState } from '@/services/types';
+import { useCallAllowance } from '@/state/use-call-allowance';
 import { useTheme } from '@/theme';
 import { Share2, X } from '@/components';
 
@@ -34,6 +35,13 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy, rematch = n
   const [notice, setNotice] = useState<string | null>(null);
   const code = state.room_code ?? '';
   const url = code ? joinUrlFor(code) : '';
+
+  // A Voix room is a call: say how long it may last and what is left today,
+  // from the server's own numbers (never a constant in the app).
+  const isCall = isCallGame(state);
+  const allowance = useCallAllowance(isCall);
+  // The game's own maximum, if the admin changed the setting since it was created.
+  const callSeconds = state.settings.call_max_seconds ?? allowance?.max_seconds ?? 0;
 
   const share = async () => {
     const outcome = await shareRoom(code, url);
@@ -77,6 +85,15 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy, rematch = n
         <AppText variant="small" tone="faint" testID="lobby-input-mode">
           {fr.lobby.inputMode} : {state.settings.input_mode === 'VOICE' ? fr.setup.voice : fr.setup.buttons}
         </AppText>
+        {/* A Voix room is a call, so both players read its limits before starting. */}
+        {isCall && allowance ? (
+          <AppText variant="small" tone="brass" testID="lobby-call-limit">
+            {fr.call.limit(
+              fr.timer.duration(Math.min(allowance.max_seconds, callSeconds)),
+              fr.timer.duration(allowance.minutes_left_today * 60),
+            )}
+          </AppText>
+        ) : null}
         {/* The creator chose for both players; the joiner reads it here. */}
         <AppText variant="small" tone="faint" testID="lobby-timer">
           {fr.lobby.timer} : {state.settings.timed ? fr.lobby.timerOn : fr.lobby.timerOff}

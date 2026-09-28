@@ -22,7 +22,7 @@ import {
   start,
   transcribe,
 } from './voice-harness';
-import { makeSettings, makeState, renderWithProviders } from './helpers';
+import { makeSettings, makeState, renderWithProviders, T0 } from './helpers';
 import { TireurVoice } from '@/views/voice-play';
 import type { GameState } from '@/services/types';
 import type { Countdown } from '@/state/use-countdown';
@@ -302,6 +302,11 @@ describe('the chronometer and the microphone (§9)', () => {
       otherRedrew: false,
       rewoundTo: null,
       isRoom: false,
+      // AI_DECOUVREUR: Voix here is speech recognition, never a call.
+      isCall: false,
+      receivedAt: Date.parse(T0),
+      declareResult: async () => undefined,
+      checkTime: () => undefined,
       realtimeStatus: null,
       connectionLost: false,
       refresh: async () => undefined,
