@@ -99,6 +99,7 @@ export function DecouvreurVoice({ game, names }: DecouvreurVoiceProps) {
     hint: () => {
       const current = latest.current.game.state;
       return buildTranscribeHint(current?.prompt?.text ?? null, latest.current.names, {
+        role: 'DECOUVREUR',
         context: current?.path.map((entry) => entry.text) ?? [],
       });
     },
@@ -161,7 +162,7 @@ export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: 
     enabled,
     hint: () => {
       const current = latest.current.game.state;
-      return buildTranscribeHint(current?.pending_guess ?? current?.prompt?.text ?? null, []);
+      return buildTranscribeHint(current?.pending_guess ?? current?.prompt?.text ?? null, [], { role: 'TIREUR' });
     },
     onTranscript: async (text, recording) => {
       const { game: now, calibration } = latest.current;

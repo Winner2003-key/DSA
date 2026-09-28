@@ -66,6 +66,36 @@ describe('Découvreur by voice (AI Tireur)', () => {
     expect(ask).not.toHaveBeenCalled();
   });
 
+  it('treats Whisper\u2019s silence boilerplate as nothing said, and never shows it', async () => {
+    const { service, screen } = await start('AI_TIREUR', CAIN);
+    const ask = jest.spyOn(service, 'ask');
+    await waitFor(() => expect(screen.getByTestId('prompt-text')).toBeTruthy());
+
+    // What Groq returns for a second of room tone.
+    await speak(screen, 900, 'Sous-titrage Soci\u00e9t\u00e9 Radio-Canada');
+    await waitFor(() => expect(screen.getByTestId('voice-notice')).toHaveTextContent('Je n\u2019ai pas bien compris. Peux-tu r\u00e9p\u00e9ter ?'));
+    expect(spoken()).toContain('Je n\u2019ai pas bien compris. Peux-tu r\u00e9p\u00e9ter ?');
+    expect(screen.queryByTestId('voice-heard')).toBeNull();
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it('gives the D\u00e9couvreur a hint with the questions asked and no answer words', async () => {
+    const { screen } = await start('AI_TIREUR', CAIN);
+    await waitFor(() => expect(screen.getByTestId('prompt-text')).toHaveTextContent(/^ANCIEN\s\?$/));
+
+    await speak(screen, 500, 'Ancien ?');
+    await waitFor(() => expect(screen.getByTestId('prompt-text')).toHaveTextContent(/^HOMME\s\?$/));
+    await speak(screen, 500, 'Homme ?');
+
+    const options = transcribe.mock.calls[1]?.[1] as { hint?: string } | undefined;
+    const hint = options?.hint ?? '';
+    expect(hint).toContain('Homme ?');
+    // The question already answered is repeated; the answer words are not, and
+    // the D\u00e9couvreur could never say them.
+    expect(hint).toContain('Ancien ?');
+    expect(hint).not.toMatch(/je ne sais pas/i);
+  });
+
   it('calls a name, then goes back by voice', async () => {
     const { service, sessionId, screen } = await start('AI_TIREUR', CAIN);
     await waitFor(() => expect(screen.getByTestId('prompt-text')).toBeTruthy());

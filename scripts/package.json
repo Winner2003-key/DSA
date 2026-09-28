@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "validate": "tsx validate-graph/index.ts",
     "import": "tsx import-book/index.ts",
-    "export": "tsx export-graph/index.ts"
+    "export": "tsx export-graph/index.ts",
+    "voice-eval": "tsx voice-eval/index.ts"
   },
   "dependencies": {
     "@dsa/core": "*",

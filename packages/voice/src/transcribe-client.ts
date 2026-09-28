@@ -5,6 +5,7 @@
 // (it is deployed on its own); test/transcribe-function.test.ts keeps both equal.
 
 import { normalizeName } from '@dsa/core';
+import type { Role } from '@dsa/core';
 import { speakableName, speakablePrompt } from './speakable';
 
 export const TRANSCRIBE_FUNCTION_NAME = 'transcribe';
@@ -15,6 +16,8 @@ export const TRANSCRIBE_MAX_HINT_CHARS = 800;
 /** What buildTranscribeHint aims for: Whisper's prompt is limited to 224 tokens. */
 export const TRANSCRIBE_HINT_TARGET_CHARS = 400;
 export const TRANSCRIBE_HINT_MAX_NAMES = 40;
+/** How many already-asked questions the Découvreur's hint repeats. */
+export const TRANSCRIBE_HINT_MAX_CONTEXT = 4;
 /** Accepted `type` of the audio part (parameters such as ";codecs=opus" are ignored). */
 export const TRANSCRIBE_AUDIO_TYPES = [
   'audio/m4a',
@@ -133,28 +136,73 @@ export function parseTranscribeError(status: number, json: unknown, retryAfter: 
 // Hint
 
 export interface TranscribeHintOptions {
-  /** Other texts on screen (path, clues) whose names should come first. */
+  /**
+   * Who is about to speak. The Tireur says nothing but the answer words; the
+   * Découvreur can never say them, and says the book's questions and names
+   * instead. Defaults to TIREUR, which is the hint this function used to build
+   * for both.
+   */
+  role?: Role;
+  /**
+   * Other texts on screen — the path, the clues. Names appearing in them rank
+   * first, and for the Découvreur they are also repeated as questions.
+   */
   context?: readonly string[];
   maxNames?: number;
   maxChars?: number;
+  /** How many of `context`'s texts to repeat (Découvreur only). */
+  maxContext?: number;
 }
 
 const ANSWER_WORDS = 'Oui, non, je ne sais pas, question.';
 
 /**
- * The Whisper prompt: the question being asked (speakable form), the answer
- * words, then up to 40 names. Names mentioned in the prompt or the context
- * come first, then `knownNames` in the caller's order (pass the most likely
- * ones first). Stays under TRANSCRIBE_HINT_TARGET_CHARS without cutting a name.
+ * The Whisper prompt: what this player is about to say, most likely first.
+ *
+ * The current question always leads — it is the single most likely utterance for
+ * either player. After it, the Tireur gets the answer words, because they are all
+ * he can say. The Découvreur gets the questions already asked instead: he cannot
+ * answer, so the answer words would only pull a mangled question towards "oui",
+ * and "revenir à …" repeats one of those questions verbatim.
+ *
+ * Names fill whatever room is left, those mentioned on screen first, then
+ * `knownNames` in the caller's order (pass the most likely ones first). Stays
+ * under TRANSCRIBE_HINT_TARGET_CHARS without ever cutting a name in half.
  */
 export function buildTranscribeHint(prompt: string | null, knownNames: readonly string[], opts: TranscribeHintOptions = {}): string {
+  const role: Role = opts.role ?? 'TIREUR';
   const maxNames = opts.maxNames ?? TRANSCRIBE_HINT_MAX_NAMES;
   const maxChars = Math.min(opts.maxChars ?? TRANSCRIBE_HINT_TARGET_CHARS, TRANSCRIBE_MAX_HINT_CHARS);
+  const context = opts.context ?? [];
 
-  const head = [prompt ? speakablePrompt(prompt) : '', ANSWER_WORDS].filter((s) => s !== '').join(' ');
-  let hint = head.length <= maxChars ? head : head.slice(0, maxChars).replace(/\s+\S*$/, '');
+  const parts: string[] = [];
+  if (prompt !== null && prompt !== '') parts.push(speakablePrompt(prompt));
+  if (role === 'TIREUR') {
+    parts.push(ANSWER_WORDS);
+  } else {
+    const wanted = opts.maxContext ?? TRANSCRIBE_HINT_MAX_CONTEXT;
+    // Most recent first: the question just answered is the likeliest to be
+    // named in a "revenir à …", and the oldest ones fall off the budget first.
+    for (const text of [...context].slice(-wanted).reverse()) {
+      const spoken = speakablePrompt(text);
+      if (spoken !== '') parts.push(spoken);
+    }
+  }
 
-  const onScreen = [prompt ?? '', ...(opts.context ?? [])].map(normalizeName).join(' ');
+  // The first part is truncated if it alone is too long; later ones are dropped
+  // whole, so the hint never ends on half a question.
+  let hint = '';
+  for (const part of parts) {
+    if (hint === '') {
+      hint = part.length <= maxChars ? part : part.slice(0, maxChars).replace(/\s+\S*$/, '');
+      continue;
+    }
+    const candidate = `${hint} ${part}`;
+    if (candidate.length > maxChars) break;
+    hint = candidate;
+  }
+
+  const onScreen = [prompt ?? '', ...context].map(normalizeName).join(' ');
   const seen = new Set<string>();
   const unique = knownNames.filter((name) => {
     const key = normalizeName(name);

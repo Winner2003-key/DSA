@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   TRANSCRIBE_HINT_MAX_NAMES,
+  TRANSCRIBE_HINT_MAX_CONTEXT,
   TRANSCRIBE_HINT_TARGET_CHARS,
   TranscribeError,
   buildTranscribeHint,
@@ -27,6 +28,31 @@ describe('buildTranscribeHint', () => {
     expect(short.length).toBeLessThanOrEqual(TRANSCRIBE_HINT_TARGET_CHARS);
     expect(short.endsWith('.')).toBe(true);
     expect(short).not.toMatch(/, $/);
+  });
+
+  it('gives the Decouvreur the questions already asked instead of the answer words', () => {
+    const hint = buildTranscribeHint('LIE A DAVID', [], {
+      role: 'DECOUVREUR',
+      context: ['ANCIEN', 'HOMME', 'PENTATEUQUE'],
+    });
+    // The current question first, then the path most recent first. No oui/non:
+    // the Decouvreur cannot answer, so they would only mis-bias the question.
+    expect(hint).toBe('Lié à David ? Pentateuque ? Homme ? Ancien ?');
+    expect(hint).not.toMatch(/oui|non/i);
+  });
+
+  it('keeps at most TRANSCRIBE_HINT_MAX_CONTEXT questions, and leaves room for names', () => {
+    const path = ['ANCIEN', 'HOMME', 'PENTATEUQUE', 'LIVRE DE SAMUEL', 'LES ROIS', 'LIE A DAVID'];
+    const hint = buildTranscribeHint('LE REVOLTE', ['ABSALOM', 'JOAB'], { role: 'DECOUVREUR', context: path });
+    expect(hint.match(/\?/g)?.length).toBe(1 + TRANSCRIBE_HINT_MAX_CONTEXT);
+    expect(hint).toContain('Absalom');
+    // The oldest questions are the ones dropped.
+    expect(hint).not.toContain('Ancien');
+  });
+
+  it('still gives the Tireur the answer words, and that is the default', () => {
+    expect(buildTranscribeHint('ANCIEN', [], { role: 'TIREUR' })).toBe(buildTranscribeHint('ANCIEN', []));
+    expect(buildTranscribeHint('ANCIEN', [], { context: ['HOMME'] })).toBe('Ancien ? Oui, non, je ne sais pas, question.');
   });
 
   it('puts names seen in the prompt or on screen first, deduplicated, as spoken names', () => {

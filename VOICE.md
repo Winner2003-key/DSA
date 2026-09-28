@@ -204,9 +204,37 @@ What this means for DSA: each spoken answer is one request, so on Groq's free pl
 | `500 DSA_VOICE_INTERNAL` with `"step":"user_network"` or `"rpc"` | The function couldn't reach your project's Auth or database API. Retry; if it persists, check the project isn't paused (free projects pause after a week of inactivity: **Restore project**). |
 | Browser: "CORS policy" error from the web app | Check the function is deployed and answers `OPTIONS` (curl `-X OPTIONS -i`). A 401 on `OPTIONS` means the gateway requires a JWT for preflight; tell the lead (the function already answers preflight itself). |
 | The text is right but OUI vs OUIOUIOUI is wrong | Expected: Whisper writes a held "ouiiii" as "Oui". The app decides that from the sound, not the text (`packages/voice`, calibration in the app settings). |
+| Whisper answers silence with "Sous-titrage Société Radio-Canada" or "Merci." | Expected, and handled: `isLikelyHallucination` (`packages/voice`) drops it, so the player gets "Je n'ai pas bien compris" instead of seeing the credits. If a new piece of boilerplate gets through, add it to that list. |
+| A name is heard but the game doesn't take it | The matcher found two names too close to tell apart, or none above its threshold. Measure before changing anything: `npm run voice:eval`. |
 | Transcript in the wrong language on the fallback | Hugging Face's endpoint has no language parameter, so very short clips can be detected as another language. Groq always gets `language=fr`. |
 | CLI: `Cannot find project ref` | Add `--project-ref <ref>` (step 4b), or run `npx supabase link --project-ref <ref>` once. |
 | CLI: asks for Docker | Add `--use-api`. Update the CLI with `npx supabase@latest …` if the flag is unknown. |
+
+---
+
+## 8. Measuring the recognition before changing it
+
+`npm run voice:eval` runs the whole book's names through the intent matcher with
+distortions a French recogniser really produces, and prints what it finds, gets
+wrong, and can't resolve. It needs `data/book` on the machine; it calls no API and
+costs nothing.
+
+Use it before touching `phoneticKey` or `INTENT_THRESHOLDS` in `packages/core`.
+The first change tried there — folding French nasal vowels the way the
+carnetdevente matcher does — read well and measured **worse**: with 1,087 names,
+collapsing "an/en/on" to one marker loses more than it joins, and the hit rate on
+realistic mis-transcriptions fell from 18/24 to 13/24. It was dropped.
+
+Real recordings beat invented distortions. Write a file of
+`what was heard<TAB>what was meant`, one per line, and run:
+
+```bash
+npm run voice:eval -- --cases mes-enregistrements.tsv
+```
+
+Twenty or thirty lines from an actual player is enough to tell whether a change
+helps, and it is the only way to know whether the problem is the matcher or the
+recognition itself.
 
 ---
 

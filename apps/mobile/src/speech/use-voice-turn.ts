@@ -6,7 +6,7 @@
  * way out is a new game with Boutons).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TranscribeError } from '@dsa/voice';
+import { TranscribeError, isLikelyHallucination } from '@dsa/voice';
 
 import { fr } from '@/i18n/fr';
 import type { Recording, RecorderErrorCode } from './recorder-types';
@@ -111,9 +111,15 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
       return;
     }
     setFallback(null);
-    const said = cleanTranscript(text);
-    setHeard(said === '' ? null : said);
-    await latest.current.onTranscript(text, recording);
+    // Silence and room tone come back from Whisper as subtitle credits, not as
+    // an empty string ("Sous-titrage Société Radio-Canada", "Merci."). Showing
+    // that as "J'ai entendu : « … »" is confusing, and the longer ones carry
+    // enough letters to fuzzy-match a book name. It is handed on as nothing
+    // said, so the view answers out loud like any other unrecognised turn — a
+    // voice game has no buttons to read a silent notice from.
+    const heardText = isLikelyHallucination(text) ? '' : cleanTranscript(text);
+    setHeard(heardText === '' ? null : heardText);
+    await latest.current.onTranscript(heardText, recording);
   }, []);
 
   const capture = useVoiceCapture({

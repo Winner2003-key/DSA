@@ -41,6 +41,8 @@ export type {
   TranscriptReading,
 } from './answer-decision';
 
+export { isLikelyHallucination } from './transcript';
+
 export { FREE_TALK_MAX_MS, FREE_TALK_SILENCE_MS, detectEndOfSpeech } from './endpoint';
 export type { EndOfSpeech, EndOfSpeechOptions } from './endpoint';
 
@@ -56,6 +58,7 @@ export {
   TRANSCRIBE_MAX_HINT_CHARS,
   TRANSCRIBE_HINT_TARGET_CHARS,
   TRANSCRIBE_HINT_MAX_NAMES,
+  TRANSCRIBE_HINT_MAX_CONTEXT,
   TRANSCRIBE_AUDIO_TYPES,
   TRANSCRIBE_FIELDS,
   TRANSCRIBE_NETWORK_MESSAGE_FR,
