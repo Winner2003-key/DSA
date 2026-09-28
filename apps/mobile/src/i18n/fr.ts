@@ -210,6 +210,9 @@ export const fr = {
     waitingOther: (name: string) => `On attend ${name}…`,
     withPlayer: (name: string, role: string) => `${name} · ${role}`,
     micOpen: 'Micro ouvert',
+    /** The browser blocks sound until a tap (web only). */
+    soundBlocked: 'Le navigateur a coupé le son de l’appel.',
+    enableSound: 'Activer le son',
     micMuted: 'Micro coupé',
     speaking: 'parle',
     quiet: 'écoute',

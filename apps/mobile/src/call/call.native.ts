@@ -160,5 +160,8 @@ export function createCall(): VoiceCall {
       await room.localParticipant.setMicrophoneEnabled(!muted).catch(() => undefined);
       emit({ muted });
     },
+
+    // The native SDK plays remote audio by itself; there is no autoplay policy.
+    startAudio: async () => undefined,
   };
 }

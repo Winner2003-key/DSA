@@ -139,6 +139,12 @@ export function CallPlay({ sessionId, game }: CallPlayProps) {
         </NoticeBanner>
       ) : null}
 
+      {call.audioBlocked ? (
+        <NoticeBanner testID="call-sound-blocked" tone="warn" title={fr.call.soundBlocked}>
+          <PrimaryButton testID="call-enable-sound" label={fr.call.enableSound} onPress={call.startAudio} />
+        </NoticeBanner>
+      ) : null}
+
       {showWarning ? (
         <NoticeBanner
           testID="call-ending-warning"

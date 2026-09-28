@@ -22,6 +22,8 @@ export interface UseCall extends CallSnapshot {
   /** The warning to show now: 60, 30 or null. */
   warning: number | null;
   toggleMute: () => void;
+  /** The « Activer le son » tap (web autoplay policy). */
+  startAudio: () => void;
   /** After « L'appel a échoué », try the whole thing again. */
   retry: () => void;
 }
@@ -130,6 +132,10 @@ export function useCall(options: UseCallOptions): UseCall {
     void call.setMuted(!call.snapshot().muted);
   }, [call]);
 
+  const startAudio = useCallback(() => {
+    void call.startAudio();
+  }, [call]);
+
   const retry = useCallback(() => {
     setSnapshot((current) => ({ ...current, state: 'connecting', error: null }));
     setAttempt((n) => n + 1);
@@ -140,6 +146,7 @@ export function useCall(options: UseCallOptions): UseCall {
     secondsLeft,
     warning,
     toggleMute,
+    startAudio,
     retry,
   };
 }

@@ -47,6 +47,8 @@ export interface CallSnapshot {
   muted: boolean;
   /** Identities heard speaking right now. */
   speaking: string[];
+  /** The browser refused to start sound without a tap (autoplay policy): show « Activer le son ». */
+  audioBlocked: boolean;
   error: CallError | null;
 }
 
@@ -55,6 +57,7 @@ export const IDLE_SNAPSHOT: CallSnapshot = {
   otherPresent: false,
   muted: false,
   speaking: [],
+  audioBlocked: false,
   error: null,
 };
 
@@ -63,6 +66,8 @@ export interface VoiceCall {
   connect(token: CallToken): Promise<void>;
   disconnect(): Promise<void>;
   setMuted(muted: boolean): Promise<void>;
+  /** Starts the other player's sound from a tap, when `audioBlocked`. A no-op on phones. */
+  startAudio(): Promise<void>;
   /** Called on every change; the same snapshot shape on both platforms. */
   onChange(listener: (snapshot: CallSnapshot) => void): () => void;
   snapshot(): CallSnapshot;
@@ -77,6 +82,7 @@ export function unsupportedCall(code: CallErrorCode = 'NEEDS_DEV_BUILD'): VoiceC
     },
     disconnect: async () => undefined,
     setMuted: async () => undefined,
+    startAudio: async () => undefined,
     onChange: () => () => undefined,
     snapshot: () => snapshot,
   };

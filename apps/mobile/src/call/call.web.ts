@@ -26,6 +26,15 @@ interface LiveKitRoom {
   on: (event: string, handler: (...args: unknown[]) => void) => void;
   localParticipant: { setMicrophoneEnabled: (enabled: boolean) => Promise<unknown> };
   remoteParticipants?: Map<string, unknown>;
+  startAudio: () => Promise<void>;
+  canPlaybackAudio: boolean;
+}
+
+/** The part of a livekit-client track this file uses. */
+interface RemoteTrackLike {
+  kind?: string;
+  attach: () => HTMLMediaElement;
+  detach: () => HTMLMediaElement[];
 }
 
 let cached: LiveKitClientModule | null | undefined;
@@ -45,6 +54,13 @@ export function createCall(): VoiceCall {
   let snapshot: CallSnapshot = { ...IDLE_SNAPSHOT };
   const listeners = new Set<(next: CallSnapshot) => void>();
   let room: LiveKitRoom | null = null;
+  // livekit-client does not play remote tracks by itself in a browser: each one
+  // is attached to an <audio> element, kept here so hanging up removes them.
+  const audioElements = new Set<HTMLMediaElement>();
+  const removeAudio = () => {
+    for (const element of audioElements) element.remove();
+    audioElements.clear();
+  };
 
   const emit = (patch: Partial<CallSnapshot>) => {
     snapshot = { ...snapshot, ...patch };
@@ -85,7 +101,27 @@ export function createCall(): VoiceCall {
       on(RoomEvent.ParticipantDisconnected, refresh);
       on(RoomEvent.Reconnecting, () => emit({ state: 'reconnecting' }));
       on(RoomEvent.Reconnected, () => emit({ state: 'connected' }));
-      on(RoomEvent.Disconnected, () => emit({ state: 'idle', otherPresent: false, speaking: [] }));
+      on(RoomEvent.TrackSubscribed, (...args: unknown[]) => {
+        const track = args[0] as RemoteTrackLike | undefined;
+        if (!track || track.kind !== 'audio') return;
+        const element = track.attach();
+        element.style.display = 'none';
+        document.body.appendChild(element);
+        audioElements.add(element);
+      });
+      on(RoomEvent.TrackUnsubscribed, (...args: unknown[]) => {
+        const track = args[0] as RemoteTrackLike | undefined;
+        if (!track || track.kind !== 'audio') return;
+        for (const element of track.detach()) {
+          element.remove();
+          audioElements.delete(element);
+        }
+      });
+      on(RoomEvent.AudioPlaybackStatusChanged, () => emit({ audioBlocked: !next.canPlaybackAudio }));
+      on(RoomEvent.Disconnected, () => {
+        removeAudio();
+        emit({ state: 'idle', otherPresent: false, speaking: [], audioBlocked: false });
+      });
       on(RoomEvent.ActiveSpeakersChanged, (...args: unknown[]) => {
         const speakers = (args[0] ?? []) as { identity?: string }[];
         emit({ speaking: speakers.map((s) => s.identity ?? '').filter((id) => id !== '') });
@@ -104,20 +140,36 @@ export function createCall(): VoiceCall {
         throw failure;
       }
 
-      emit({ state: 'connected', muted: false, otherPresent: (next.remoteParticipants?.size ?? 0) > 0, error: null });
+      // Safari and Chrome block sound that did not start from a tap; if so, the
+      // screen shows « Activer le son », whose tap calls startAudio().
+      await next.startAudio().catch(() => undefined);
+      emit({
+        state: 'connected',
+        muted: false,
+        otherPresent: (next.remoteParticipants?.size ?? 0) > 0,
+        audioBlocked: !next.canPlaybackAudio,
+        error: null,
+      });
     },
 
     disconnect: async () => {
       const current = room;
       room = null;
       if (current) await current.disconnect().catch(() => undefined);
-      emit({ state: 'idle', otherPresent: false, speaking: [] });
+      removeAudio();
+      emit({ state: 'idle', otherPresent: false, speaking: [], audioBlocked: false });
     },
 
     setMuted: async (muted: boolean) => {
       if (!room) return;
       await room.localParticipant.setMicrophoneEnabled(!muted).catch(() => undefined);
       emit({ muted });
+    },
+
+    startAudio: async () => {
+      if (!room) return;
+      await room.startAudio().catch(() => undefined);
+      emit({ audioBlocked: !room.canPlaybackAudio });
     },
   };
 }
