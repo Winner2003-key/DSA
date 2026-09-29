@@ -234,7 +234,7 @@ export const fr = {
     /** Expo Go has no WebRTC: the game still ends with Trouvé / Pas trouvé. */
     needsDevBuild:
       'L’appel nécessite l’application DSA installée. Sur ce téléphone, tu peux jouer depuis le navigateur.',
-    micDenied: 'Le micro est refusé. Autorise le micro, puis réessaie.',
+    micDenied: 'Le micro est refusé. L’appel a besoin de ton micro.',
     connectFailed: 'La connexion à l’appel n’a pas marché.',
     /** The result screen of a call game. */
     resultTimeUp: 'Temps d’appel écoulé',
@@ -266,9 +266,55 @@ export const fr = {
     sayAgain: 'Je n’ai pas su faire la différence. Redis-le : OUI, ou un long OUIIII.',
     // Fallbacks: a voice game has no buttons, so the way out is a new game.
     restartWithButtons: 'Si la voix ne marche pas, quitte et recommence la partie en choisissant Boutons.',
-    micDenied: 'Le micro est refusé. Autorise le micro dans les réglages du téléphone.',
+    micDenied: 'Le micro est refusé.',
     micUnavailable: 'Pas de micro utilisable ici.',
     micFailed: 'Le micro n’a pas marché. Réessaie.',
+    /**
+     * A refusal is never the end: the button asks again, and the browser shows its
+     * question again unless it stored the refusal — then `micBlockedHint` and the
+     * steps below say where the switch is.
+     */
+    micAskAgain: 'Autoriser le micro',
+    micAskAgainHint: 'Touche « Autoriser le micro » : la demande d’autorisation reviendra.',
+    micBlockedHint: 'Ton navigateur a retenu le refus : il ne redemandera pas tout seul. Remets le micro sur « Autoriser », puis touche « Autoriser le micro ».',
+    micStillBlocked: 'Le micro est toujours refusé. Suis les étapes, puis touche « Autoriser le micro ».',
+    micGranted: 'Micro autorisé. Tu peux parler.',
+    micOpenSettings: 'Ouvrir les réglages',
+    /** Where the switch is, per browser: the player is told, not left guessing. */
+    micSteps: {
+      chromium: [
+        'Touche l’icône de micro (ou le cadenas) juste à gauche de l’adresse du site, en haut.',
+        'Mets le micro sur « Autoriser », ou touche « Réinitialiser l’autorisation ».',
+        'Reviens ici et touche « Autoriser le micro ».',
+      ],
+      firefox: [
+        'Touche le cadenas à gauche de l’adresse du site, en haut.',
+        'À « Utiliser le microphone », touche la croix pour effacer le blocage.',
+        'Reviens ici et touche « Autoriser le micro ».',
+      ],
+      safari: [
+        'Dans le menu Safari, ouvre « Réglages pour ce site web… ».',
+        'Mets « Microphone » sur « Autoriser ».',
+        'Reviens ici et touche « Autoriser le micro ».',
+      ],
+      androidBrowser: [
+        'Touche le cadenas à gauche de l’adresse du site, puis « Autorisations ».',
+        'Mets « Micro » sur « Autoriser ».',
+        'Reviens ici et touche « Autoriser le micro ».',
+      ],
+      iosBrowser: [
+        'Ouvre Réglages (l’application du téléphone) → Safari → Microphone, et choisis « Demander ».',
+        'Reviens ici et touche « Autoriser le micro ».',
+      ],
+      phone: [
+        'Ouvre les réglages du téléphone pour cette application.',
+        'Autorise le micro, puis reviens ici et touche « Autoriser le micro ».',
+      ],
+      generic: [
+        'Autorise le micro pour ce site dans les réglages de ton navigateur.',
+        'Reviens ici et touche « Autoriser le micro ».',
+      ],
+    } as const,
     serviceDown: 'La reconnaissance vocale ne répond pas. Réessaie.',
     rateLimit: 'Trop de demandes vocales. Réessaie dans quelques minutes.',
     offline: 'Pas de connexion au serveur vocal. Vérifie ta connexion.',

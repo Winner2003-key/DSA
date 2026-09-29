@@ -11,6 +11,7 @@ import { TranscribeError, isLikelyHallucination } from '@dsa/voice';
 import { fr } from '@/i18n/fr';
 import type { Recording, RecorderErrorCode } from './recorder-types';
 import { getTranscriber } from './transcriber';
+import { useMicPermission, type MicPermissionHelp } from './use-mic-permission';
 import { useVoiceCapture, type CapturePhase } from './use-voice-capture';
 
 /** A hold shorter than this is a slip of the finger, not a word: nothing is sent. */
@@ -26,8 +27,15 @@ export interface VoiceTurnOptions {
 }
 
 export interface VoiceTurn {
-  /** Voice can't be used on this device now (no microphone, refused, not configured). */
+  /** Voice can't be used on this device now (no microphone, not configured). */
   off: boolean;
+  /**
+   * The microphone was refused. Never latched: the microphone stays on the
+   * screen, and the banner asks for the permission again.
+   */
+  micDenied: boolean;
+  /** Asking again, and what to do when the browser has stopped asking. */
+  micPermission: MicPermissionHelp;
   phase: CapturePhase;
   level: number;
   /** Slid up while holding: the recording goes on until the microphone is touched. */
@@ -74,13 +82,24 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
   const [notice, setNotice] = useState<string | null>(null);
   const [fallback, setFallback] = useState<string | null>(null);
   const [off, setOff] = useState(false);
+  const [micDenied, setMicDenied] = useState(false);
   const [unsupportedSeen, setUnsupportedSeen] = useState(false);
   const latest = useRef(options);
   latest.current = options;
 
+  // The player may allow the microphone from the browser's own panel while this
+  // screen is up: the banner goes away by itself, no reload, no lost turn.
+  const micPermission = useMicPermission({
+    onGranted: () => {
+      setMicDenied(false);
+      setFallback(null);
+    },
+  });
+
   const onRecorderError = useCallback((code: RecorderErrorCode) => {
     if (code === 'PERMISSION_DENIED') {
-      setOff(true);
+      // Not `off`: every press asks the browser again, which is the whole point.
+      setMicDenied(true);
       setFallback(fr.voice.micDenied);
     } else if (code === 'UNAVAILABLE') {
       setOff(true);
@@ -93,6 +112,7 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
   const onRecording = useCallback(async (recording: Recording) => {
     setHeard(null);
     setNotice(null);
+    setMicDenied(false); // A recording arrived: the microphone is allowed after all.
     if (recording.durationMs < MIN_RECORDING_MS) {
       setNotice(fr.voice.tooShort);
       return;
@@ -128,6 +148,14 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
     onRecorderError,
   });
 
+  // A refusal stored on an earlier visit: said before the player presses a
+  // microphone that cannot open, with the way back in the same banner.
+  useEffect(() => {
+    if (!micPermission.blocked || !options.enabled) return;
+    setMicDenied(true);
+    setFallback((current) => current ?? fr.voice.micDenied);
+  }, [micPermission.blocked, options.enabled]);
+
   // A new turn starts clean.
   useEffect(() => {
     if (!options.enabled) setNotice(null);
@@ -143,6 +171,8 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
 
   return {
     off: off || !capture.supported,
+    micDenied,
+    micPermission,
     phase: capture.phase,
     level: capture.level,
     locked: capture.locked,
@@ -152,6 +182,7 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
     fallback: fallback ?? (!capture.supported && options.enabled && !unsupportedSeen ? fr.voice.micUnavailable : null),
     dismissFallback: () => {
       setFallback(null);
+      setMicDenied(false);
       setUnsupportedSeen(true);
     },
     pressIn: capture.pressIn,

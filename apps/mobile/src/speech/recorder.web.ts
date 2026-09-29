@@ -11,6 +11,7 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { rmsToDb, type EnvelopeSample } from '@dsa/voice';
 
+import { micPermission } from './mic-permission';
 import { METERING_INTERVAL_MS, RecorderError, type Recorder, type Recording } from './recorder-types';
 
 export * from './recorder-types';
@@ -73,15 +74,11 @@ export function useRecorder(): Recorder {
   const starting = useRef(false);
   const supported = isSupported();
 
+  // Asks only when the answer is not already yes: `micPermission` reads the
+  // browser's stored decision first, and opens nothing when it is "granted".
   const requestPermission = useCallback(async () => {
     if (!isSupported()) return false;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => track.stop());
-      return true;
-    } catch {
-      return false;
-    }
+    return (await micPermission.request()) === 'granted';
   }, []);
 
   const start = useCallback(async (onSample?: (sample: EnvelopeSample) => void) => {

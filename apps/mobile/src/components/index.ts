@@ -10,6 +10,7 @@ export { ErrorBanner, OfflineBadge, SoundToggle, TopBar } from './chrome';
 export { EarlierExchanges, ExchangePair } from './conversation';
 export { GameHeader, turnOf } from './game-header';
 export * from './icon';
+export { MicNotice } from './mic-notice';
 export { NamePad } from './name-pad';
 export { NoticeBanner } from './notice-banner';
 export { PassPhone } from './pass-phone';

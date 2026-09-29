@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import { View } from 'react-native';
 import { buildTranscribeHint } from '@dsa/voice';
 
-import { AppText, NoticeBanner, SecondaryButton, VoiceButton } from '@/components';
+import { AppText, MicNotice, NoticeBanner, SecondaryButton, VoiceButton } from '@/components';
 import { fr } from '@/i18n/fr';
 import { guessConfirmation, interpretDecouvreur, interpretTireur } from '@/speech/interpret';
 import { useSpeech } from '@/speech/use-speech';
@@ -32,7 +32,17 @@ function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; e
   const theme = useTheme();
   return (
     <View testID={testID} style={{ gap: theme.space.xs }}>
-      {turn.fallback ? (
+      {/*
+        A refused microphone is the one failure with a way back: the banner asks
+        for the permission again (and says where the switch is when the browser
+        has stopped asking), and the microphone below stays where it was, so the
+        very next press is a new attempt rather than a new error.
+      */}
+      {turn.fallback && turn.micDenied ? (
+        <MicNotice testID="voice-fallback" title={turn.fallback} help={turn.micPermission}>
+          <SecondaryButton testID="voice-fallback-close" icon={X} label={fr.app.close} onPress={turn.dismissFallback} />
+        </MicNotice>
+      ) : turn.fallback ? (
         <NoticeBanner testID="voice-fallback" tone="warn" title={turn.fallback} hint={fr.voice.restartWithButtons}>
           <SecondaryButton testID="voice-fallback-close" icon={X} label={fr.app.close} onPress={turn.dismissFallback} />
         </NoticeBanner>

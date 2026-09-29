@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { analyzeEnvelope, calibrate, type Calibration, type EnvelopeAnalysis } from '@dsa/voice';
 
-import { AppText, LinkButton, NoticeBanner, PrimaryButton, SecondaryButton, Sheet, VoiceButton } from '@/components';
+import { AppText, LinkButton, MicNotice, NoticeBanner, PrimaryButton, SecondaryButton, Sheet, VoiceButton } from '@/components';
 import { fr } from '@/i18n/fr';
 import { soundVerdict } from '@/speech/interpret';
 import type { RecorderErrorCode, Recording } from '@/speech/recorder-types';
 import { useSpeech } from '@/speech/use-speech';
+import { useMicPermission } from '@/speech/use-mic-permission';
 import { useVoiceCapture } from '@/speech/use-voice-capture';
 import { MIN_RECORDING_MS } from '@/speech/use-voice-turn';
 import { markCalibrationOffered, saveCalibration, useVoiceSettings } from '@/speech/voice-settings';
@@ -118,6 +119,10 @@ export function CalibrationPanel({
     onRecorderError: setMicError,
   });
 
+  // Allowing the microphone from the browser's own panel picks the calibration up
+  // where it stopped, without starting it again.
+  const micHelp = useMicPermission({ onGranted: () => setMicError(null) });
+
   const restart = () => {
     takes.current = { SHORT: [], LONG: [] };
     setNotice(null);
@@ -125,17 +130,21 @@ export function CalibrationPanel({
     setStep({ kind: 'TAKE', sound: 'SHORT', take: 1 });
   };
 
-  if (micError !== null || !capture.supported) {
-    return (
-      <NoticeBanner
-        testID="calibration-mic-error"
-        tone="warn"
-        title={micError === 'PERMISSION_DENIED' ? fr.voice.micDenied : micError === 'FAILED' ? fr.voice.micFailed : fr.voice.micUnavailable}
-      >
-        {micError === 'FAILED' ? <SecondaryButton icon={RotateCcw} label={fr.app.retry} onPress={() => setMicError(null)} /> : null}
-      </NoticeBanner>
-    );
+  // Nothing on this device can record: there is no second chance to offer.
+  if (!capture.supported || micError === 'UNAVAILABLE') {
+    return <NoticeBanner testID="calibration-mic-error" tone="warn" title={fr.voice.micUnavailable} />;
   }
+
+  // A refusal and a failure both leave the calibration standing: the banner sits
+  // above the microphone, which works again as soon as the banner is answered.
+  const micBanner =
+    micError === 'PERMISSION_DENIED' ? (
+      <MicNotice testID="calibration-mic-error" title={fr.voice.micDenied} help={micHelp} onAllowed={() => setMicError(null)} />
+    ) : micError === 'FAILED' ? (
+      <NoticeBanner testID="calibration-mic-error" tone="warn" title={fr.voice.micFailed}>
+        <SecondaryButton testID="calibration-mic-retry" icon={RotateCcw} label={fr.app.retry} onPress={() => setMicError(null)} />
+      </NoticeBanner>
+    ) : null;
 
   if (step.kind === 'INTRO') {
     return (
@@ -150,6 +159,7 @@ export function CalibrationPanel({
 
   const button = (
     <>
+      {micBanner}
       <VoiceButton
         testID="calibration-voice"
         phase={capture.phase}

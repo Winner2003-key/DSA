@@ -18,10 +18,12 @@ import { GameTable } from '@/views/game-table';
 import VoiceSettingsScreen from '../app/voix';
 
 import { envelopeOf, fakeMic, recordingOf, resetFakeMic, SILENCE_DB } from './fake-recorder';
+import { fakeMicPermission, resetFakeMicPermission } from './fake-mic-permission';
 import { renderWithProviders } from './helpers';
 import { activateMic } from './voice-harness';
 
 jest.mock('@/speech/recorder', () => require('./fake-recorder'));
+jest.mock('@/speech/mic-permission', () => require('./fake-mic-permission'));
 jest.mock('expo-router', () => ({ useRouter: () => ({ back: jest.fn(), replace: jest.fn(), canGoBack: () => true }) }));
 
 type Screen = Awaited<ReturnType<typeof renderWithProviders>>;
@@ -41,6 +43,7 @@ async function take(screen: Screen, voiceMs: number | 'silence') {
 beforeEach(async () => {
   await AsyncStorage.clear();
   resetFakeMic();
+  resetFakeMicPermission();
   resetVoiceSettingsForTests();
   clearNameCacheForTests();
 });
@@ -96,13 +99,24 @@ it('warns when the two sounds are too alike', async () => {
   await waitFor(() => expect(screen.getByTestId('calibration-weak')).toHaveTextContent(/se ressemblent/));
 });
 
-it('shows the microphone refusal instead of crashing', async () => {
+it('a refused microphone asks again, and the calibration goes on where it stopped', async () => {
   fakeMic.error = 'PERMISSION_DENIED';
   const screen = await renderWithProviders(<CalibrationPanel startImmediately />);
   await act(async () => {
     activateMic(screen, 'calibration-voice');
   });
   await waitFor(() => expect(screen.getByTestId('calibration-mic-error')).toHaveTextContent(/Le micro est refusé/));
+  // The first take is still on screen, waiting: only the banner was added.
+  expect(screen.getByTestId('calibration-instruction')).toHaveTextContent('Dis OUI normalement');
+
+  fakeMicPermission.onRequest = 'granted';
+  fakeMic.error = null;
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('mic-allow'));
+  });
+  await waitFor(() => expect(screen.queryByTestId('calibration-mic-error')).toBeNull());
+  await take(screen, 300);
+  await waitFor(() => expect(screen.getByTestId('calibration-take-count')).toHaveTextContent('Essai 2 sur 2'));
 });
 
 it('"Réglages de la voix" shows the stored values and redoes the calibration', async () => {

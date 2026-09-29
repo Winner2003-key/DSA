@@ -9,6 +9,7 @@ import { State } from 'react-native-gesture-handler';
 import { TranscribeError } from '@dsa/voice';
 
 import { fakeMic, recordingOf } from './fake-recorder';
+import { allowFromBrowser, fakeMicPermission, resetFakeMicPermission } from './fake-mic-permission';
 import {
   activateMic,
   CAIN,
@@ -29,7 +30,9 @@ import type { Countdown } from '@/state/use-countdown';
 import type { UseGame } from '@/state/use-game';
 
 jest.mock('@/speech/recorder', () => require('./fake-recorder'));
+jest.mock('@/speech/mic-permission', () => require('./fake-mic-permission'));
 
+beforeEach(resetFakeMicPermission);
 beforeEach(resetVoiceHarness);
 afterEach(closeVoiceHarness);
 
@@ -252,18 +255,57 @@ describe('Tireur by voice (AI Découvreur)', () => {
 });
 
 describe('fallbacks: a voice game has no buttons, so it says how to get them', () => {
-  it('permission denied: a French banner that says to start again with Boutons, no crash', async () => {
-    const { screen } = await start('AI_TIREUR', CAIN);
+  it('permission refused: the banner asks again, and the microphone stays for the retry', async () => {
+    const { service, screen } = await start('AI_TIREUR', CAIN);
+    const ask = jest.spyOn(service, 'ask');
     await waitFor(() => expect(screen.getByTestId('prompt-text')).toBeTruthy());
     fakeMic.error = 'PERMISSION_DENIED';
     await act(async () => {
       activateMic(screen);
     });
     await waitFor(() => expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/Le micro est refusé/));
-    expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/recommence la partie en choisissant Boutons/);
-    expect(screen.queryByTestId('voice-button')).toBeNull();
-    expect(screen.queryByTestId('ask-button')).toBeNull();
+    // The refusal is a step back, not the end of the game: the microphone is still
+    // there, and the banner's own button asks the browser again.
+    expect(screen.getByTestId('voice-button')).toBeTruthy();
+    expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/Autoriser le micro/);
     expect(transcribe).not.toHaveBeenCalled();
+
+    // Asked again, allowed this time: the banner goes, and the turn is played.
+    fakeMicPermission.onRequest = 'granted';
+    fakeMic.error = null;
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('mic-allow'));
+    });
+    expect(fakeMicPermission.asks).toBe(1);
+    await waitFor(() => expect(screen.queryByTestId('voice-fallback')).toBeNull());
+    await speak(screen, 500, 'Ancien ?');
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+  });
+
+  it('a refusal the browser stored: the steps for that browser, and no reload once it is allowed', async () => {
+    // Refused on an earlier visit, so the browser answers for the player: said
+    // before a microphone that cannot open is pressed.
+    fakeMicPermission.state = 'denied';
+    const { service, screen } = await start('AI_TIREUR', CAIN);
+    const ask = jest.spyOn(service, 'ask');
+    await waitFor(() => expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/Le micro est refusé/));
+    expect(screen.getByTestId('voice-fallback')).toHaveTextContent(/ne redemandera pas tout seul/);
+    expect(screen.getByTestId('mic-steps')).toHaveTextContent(/icône de micro/);
+
+    // Asking again while the refusal stands says so, instead of failing silently.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('mic-allow'));
+    });
+    await waitFor(() => expect(screen.getByTestId('mic-still-blocked')).toBeTruthy());
+
+    // Allowed in the browser's own panel: the banner goes by itself, and the
+    // microphone works — nobody reloads the page in the middle of a game.
+    await act(async () => {
+      allowFromBrowser();
+    });
+    await waitFor(() => expect(screen.queryByTestId('voice-fallback')).toBeNull());
+    await speak(screen, 500, 'Ancien ?');
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
   });
 
   it('rate limited or unreachable: a French message, the mic stays for a retry', async () => {

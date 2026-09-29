@@ -134,7 +134,14 @@ export function createCall(): VoiceCall {
       } catch (caught) {
         await next.disconnect().catch(() => undefined);
         room = null;
-        const denied = caught instanceof Error && /permission|not allowed|denied/i.test(caught.message);
+        // livekit-client wraps the browser's own error, so both are looked at:
+        // the DOMException name when it survives, the message when it does not.
+        const name = (caught as { name?: string } | null)?.name;
+        const denied =
+          name === 'NotAllowedError' ||
+          name === 'SecurityError' ||
+          name === 'PermissionDeniedError' ||
+          (caught instanceof Error && /permission|not allowed|denied|refus/i.test(caught.message));
         const failure = new CallError(denied ? 'MIC_DENIED' : 'CONNECT_FAILED');
         emit({ state: 'failed', error: failure });
         throw failure;

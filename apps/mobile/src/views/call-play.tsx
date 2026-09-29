@@ -6,6 +6,7 @@ import {
   AppText,
   Flag,
   Mic,
+  MicNotice,
   MicOff,
   NoticeBanner,
   PrimaryButton,
@@ -17,6 +18,7 @@ import {
 import { useCall } from '@/call';
 import { fr } from '@/i18n/fr';
 import { tapFeedback, warningFeedback } from '@/lib/haptics';
+import { useMicPermission } from '@/speech/use-mic-permission';
 import { useSecret } from '@/state/use-secret';
 import type { UseGame } from '@/state/use-game';
 import { useTheme } from '@/theme';
@@ -97,6 +99,18 @@ export function CallPlay({ sessionId, game }: CallPlayProps) {
           ? fr.call.micDenied
           : (call.error.detail ?? fr.call.connectFailed);
 
+  // A call is nothing without a microphone, so a refusal is asked again rather
+  // than left as "L'appel a échoué": the banner below asks, and allowing it from
+  // the browser's own panel dials again on its own.
+  const micDenied = call.error?.code === 'MIC_DENIED';
+  const deniedNow = useRef(micDenied);
+  deniedNow.current = micDenied;
+  const micHelp = useMicPermission({
+    onGranted: () => {
+      if (deniedNow.current) call.retry();
+    },
+  });
+
   const declare = (found: boolean) => {
     setConfirming(null);
     void game.declareResult(found);
@@ -133,7 +147,11 @@ export function CallPlay({ sessionId, game }: CallPlayProps) {
         </View>
       </View>
 
-      {failure ? (
+      {failure && micDenied ? (
+        <MicNotice testID="call-failed" title={failure} help={micHelp} onAllowed={call.retry}>
+          <SecondaryButton testID="call-retry" icon={Mic} label={fr.call.retry} onPress={call.retry} />
+        </MicNotice>
+      ) : failure ? (
         <NoticeBanner testID="call-failed" tone="warn" title={fr.call.failed} hint={failure}>
           <SecondaryButton testID="call-retry" icon={Mic} label={fr.call.retry} onPress={call.retry} />
         </NoticeBanner>
