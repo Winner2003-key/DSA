@@ -99,7 +99,7 @@ export function soundVerdict(envelope: readonly EnvelopeSample[], calibration: C
   const analysis = analyzeEnvelope(envelope);
   // Without a transcript, several bursts are taken as the word repeated ("oui oui oui").
   const repeats = Math.max(1, analysis.bursts);
-  return classifySound(analysis, calibration, { word: 'OUI', rewind: null, repeats, elongated: false, extraWords: false })
+  return classifySound(analysis, calibration, { word: 'OUI', rewind: null, repeats, elongated: false, extraWords: false, via: 'strict' })
     .verdict;
 }
 

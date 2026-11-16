@@ -2,16 +2,16 @@ import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { AppText, LinkButton, PrimaryButton, Screen, SoundToggle, TopBar } from '@/components';
+import { AppText, CheckCard, LinkButton, PrimaryButton, Screen, SoundToggle, TopBar } from '@/components';
 import { fr } from '@/i18n/fr';
-import { clearCalibration, useVoiceSettings } from '@/speech/voice-settings';
+import { clearCalibration, setVoiceDiagnostic, useVoiceSettings } from '@/speech/voice-settings';
 import { useTheme } from '@/theme';
 import { CalibrationPanel, CalibrationSummary } from '@/views/calibration-panel';
 import { Mic } from '@/components';
 
 /**
- * "Réglages de la voix": the Tireur's calibration,
- * which can be redone here at any time. Everything stays on this device.
+ * "Réglages de la voix": the Tireur's calibration, which can be redone here at
+ * any time, and the diagnostic. Everything stays on this device.
  */
 export default function VoiceSettingsScreen() {
   const theme = useTheme();
@@ -62,6 +62,19 @@ export default function VoiceSettingsScreen() {
               ) : null}
             </>
           )}
+        </View>
+
+        <View style={{ gap: theme.space.sm }}>
+          <AppText variant="lead" weight="semibold" tone="soft">
+            {fr.voice.diagnosticTitle}
+          </AppText>
+          <CheckCard
+            testID="voice-settings-diagnostic"
+            title={fr.voice.diagnosticLabel}
+            hint={fr.voice.diagnosticHint}
+            checked={settings.diagnostic}
+            onPress={() => setVoiceDiagnostic(!settings.diagnostic)}
+          />
         </View>
       </View>
     </Screen>

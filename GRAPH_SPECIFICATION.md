@@ -71,6 +71,16 @@ Voice capability matrix (detect at runtime and degrade gracefully):
 - **When it's borderline** (within ±15 % of the threshold), don't guess: show two large buttons ("OUI" / "OUI OUI OUI") for one tap. A wrong branch is far worse than one extra tap.
 - **The answer buttons are always available**, so the game is fully playable without a microphone (and in Expo Go before S7 lands).
 
+**The word itself comes from a closed set, not from the transcript as written (owner decision, 2026-11-16).** The Tireur may say five things and nothing else — `OUI`, `NON`, the repeated forms, `JE NE SAIS PAS`, `QUESTION` — so his turn is a four-way classification, not a transcription. Whisper cannot be given a grammar, so the set is closed *after* it has spoken, in `packages/voice/src/answer-match.ts`:
+
+- matching an exact spelling (`@dsa/core`'s `OUI_PHRASES` and friends) is tried first and is unchanged;
+- what is left is scored against the four candidates with a phonetic key written for this vocabulary alone, so that Whisper's "Hui", "Wi", "Ouh", "Houi" and "Gestion" are an answer rather than a lost turn;
+- **a monosyllable must agree on its onset**, because on three letters Jaro-Winkler cannot tell a vowel change from a consonant one: "bon", "son", "ton" and "mon" all score 0.778 against "non", and only one of those is a player saying no;
+- **an alias of several words must match almost exactly** ("je ne sais pas", "pas du tout"): a long utterance is transcribed right or not at all, and being generous there turned "Absalom" into NON;
+- **a name is never an answer.** The candidate list holds nothing a Découvreur says.
+
+Measured by `npm run voice:eval -- --answers`, which keeps a table of recall and a table of utterances that must be refused. False accepts are the failure that matters: a wrong OUI is a wrong branch the player cannot see, while a miss only costs « Peux-tu répéter ? ». No threshold there moves without a number from that command.
+
 ## 2. Graph model
 
 ### Node types

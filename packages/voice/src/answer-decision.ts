@@ -8,6 +8,7 @@
 
 import { answerClass, matchIntent, tokenize } from '@dsa/core';
 import type { AnswerClass, Role } from '@dsa/core';
+import { matchClosedSet } from './answer-match';
 import { DEFAULT_CALIBRATION, soundLengthMs } from './calibration';
 import type { Calibration } from './calibration';
 import type { EnvelopeAnalysis } from './envelope';
@@ -39,6 +40,12 @@ export interface TranscriptReading {
   elongated: boolean;
   /** Other words were spoken too ("euh, oui"), which explains extra bursts. */
   extraWords: boolean;
+  /**
+   * Which pass understood it: the exact spellings of `@dsa/core`, the lenient
+   * one answer word among a few others, or the closed set of four
+   * (`answer-match.ts`). Shown by the voice diagnostic; nothing decides on it.
+   */
+  via: 'strict' | 'lenient' | 'closed-set' | 'none';
 }
 
 const ALL_LABELS: string[] = Object.values(CANONICAL_LABELS);
@@ -63,7 +70,7 @@ function readToken(token: string): TokenReading {
 
 /** Reads the answer word and the transcript's repetition hints. */
 export function readTranscript(transcript: string): TranscriptReading {
-  const none: TranscriptReading = { word: null, rewind: null, repeats: 0, elongated: false, extraWords: false };
+  const none: TranscriptReading = { word: null, rewind: null, repeats: 0, elongated: false, extraWords: false, via: 'none' };
   const tokens = tokenize(transcript);
   if (tokens.length === 0) return none;
 
@@ -77,19 +84,39 @@ export function readTranscript(transcript: string): TranscriptReading {
   const plain = readings.map((r, i) => (r.word === null ? tokens[i] : r.word.toLowerCase())).join(' ');
   const intent = matchIntent(plain, { role: 'TIREUR', prompt: null, answerLabels: ALL_LABELS, knownNames: [], path: [] });
 
-  if (intent.type === 'REWIND') return { ...none, rewind: intent.count };
+  if (intent.type === 'REWIND') return { ...none, rewind: intent.count, via: 'strict' };
   if (intent.type === 'ANSWER') {
     const cls = answerClass(intent.label);
-    if (cls === 'JE_NE_SAIS_PAS') return { ...none, word: 'JE_NE_SAIS_PAS', repeats: 1, extraWords: false };
+    if (cls === 'JE_NE_SAIS_PAS') return { ...none, word: 'JE_NE_SAIS_PAS', repeats: 1, extraWords: false, via: 'strict' };
     const word: AnswerWord = cls === 'NON' || cls === 'NON_REPETE' ? 'NON' : 'OUI';
-    return { word, rewind: null, repeats: Math.max(1, repeats), elongated, extraWords };
+    return { word, rewind: null, repeats: Math.max(1, repeats), elongated, extraWords, via: 'strict' };
   }
   // Lenient pass: one answer word among a few other words ("oui oui c'est ça", "je crois que oui").
   if (answerWords.size === 1 && tokens.length - readings.filter((r) => r.word !== null).length <= 3) {
     const word = [...answerWords][0] as 'OUI' | 'NON';
-    return { word, rewind: null, repeats, elongated, extraWords };
+    return { word, rewind: null, repeats, elongated, extraWords, via: 'lenient' };
   }
-  return none;
+
+  // Closed-set pass: no spelling above matched, so score what the recogniser
+  // actually wrote against the only four things a Tireur may say. This is what
+  // turns Whisper's "Hui", "Wi", "Ouh" and "Gestion" into an answer instead of
+  // « Peux-tu répéter ? » (answer-match.ts, measured by `voice:eval --answers`).
+  const closed = matchClosedSet(transcript);
+  if (closed === null) return none;
+  if (closed.value === 'REWIND') {
+    return closed.count <= 3 ? { ...none, rewind: closed.count as 1 | 2 | 3, via: 'closed-set' } : none;
+  }
+  return {
+    word: closed.value,
+    rewind: null,
+    // Only the sound decides OUI vs OUIOUIOUI; a repeated *word* is still a hint.
+    repeats: closed.value === 'JE_NE_SAIS_PAS' ? 1 : Math.max(1, closed.count),
+    elongated,
+    // Whatever the match did not consume was something else the player said,
+    // which is what explains an extra burst in the envelope.
+    extraWords: tokens.length > closed.count,
+    via: 'closed-set',
+  };
 }
 
 export type SoundVerdict = 'SIMPLE' | 'REPEATED' | 'BORDERLINE' | 'NO_SOUND';
@@ -120,6 +147,8 @@ export interface DecisionEvidence {
   thresholdMs: number;
   transcriptRepeats: number;
   transcriptElongated: boolean;
+  /** Which pass read the transcript (`TranscriptReading.via`). */
+  via: TranscriptReading['via'];
 }
 
 export type AnswerDecision =
@@ -180,6 +209,7 @@ export function decideAnswer(input: DecideAnswerInput): AnswerDecision {
     thresholdMs: calibration.thresholdMs,
     transcriptRepeats: reading.repeats,
     transcriptElongated: reading.elongated,
+    via: reading.via,
   });
 
   if (input.role !== 'TIREUR') return { kind: 'UNKNOWN', evidence: evidence('NOT_TIREUR') };

@@ -10,10 +10,12 @@
     "validate": "tsx validate-graph/index.ts",
     "import": "tsx import-book/index.ts",
     "export": "tsx export-graph/index.ts",
-    "voice-eval": "tsx voice-eval/index.ts"
+    "voice-eval": "tsx voice-eval/index.ts",
+    "voice-probe": "tsx voice-probe/index.ts"
   },
   "dependencies": {
     "@dsa/core": "*",
+    "@dsa/voice": "*",
     "@supabase/supabase-js": "^2.58.0"
   },
   "devDependencies": {

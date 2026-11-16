@@ -325,6 +325,10 @@ export const fr = {
     calibrationTitle: 'Régler ta voix',
     calibrationIntro:
       'Pour que l’application reconnaisse ton OUI et ton long OUIIII, dis-les chacun deux fois. Ça prend une minute.',
+    // Diagnostic: off by default, for finding out why the voice is not working.
+    diagnosticTitle: 'Diagnostic',
+    diagnosticLabel: 'Afficher ce qui se passe',
+    diagnosticHint: 'Sous le micro, pendant la partie : la durée, le serveur, le texte entendu et ce que le jeu en a fait. À laisser éteint pour jouer.',
     calibrateStart: 'Commencer',
     calibrate: 'Régler ma voix',
     calibrateAgain: 'Refaire le réglage',

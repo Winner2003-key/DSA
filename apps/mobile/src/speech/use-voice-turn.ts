@@ -6,7 +6,7 @@
  * way out is a new game with Boutons).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TranscribeError, isLikelyHallucination } from '@dsa/voice';
+import { TranscribeError, isLikelyHallucination, type DecisionEvidence, type VoiceDiagnostic } from '@dsa/voice';
 
 import { fr } from '@/i18n/fr';
 import type { Recording, RecorderErrorCode } from './recorder-types';
@@ -48,6 +48,16 @@ export interface VoiceTurn {
   /** The fallback banner: voice failed. */
   fallback: string | null;
   dismissFallback: () => void;
+  /**
+   * The facts of the last turn, for « Réglages de la voix → Diagnostic ». Always
+   * collected (it costs nothing); only shown when the setting is on.
+   */
+  diagnostic: VoiceDiagnostic | null;
+  /**
+   * The view says what it did with the words, in its own terms ("ANSWER OUI",
+   * "GUESS Absalom"), which is the last line of the diagnostic.
+   */
+  reportOutcome: (outcome: string, evidence?: DecisionEvidence | null) => void;
   pressIn: () => void;
   pressOut: () => void;
   lock: () => void;
@@ -79,6 +89,7 @@ function failureMessage(failure: TranscribeError | null): string {
 
 export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
   const [heard, setHeard] = useState<string | null>(null);
+  const [diagnostic, setDiagnostic] = useState<VoiceDiagnostic | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [fallback, setFallback] = useState<string | null>(null);
   const [off, setOff] = useState(false);
@@ -97,6 +108,21 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
   });
 
   const onRecorderError = useCallback((code: RecorderErrorCode) => {
+    // Nothing was recorded, so there are no facts but this one — and it is the
+    // likeliest reason a voice game never starts.
+    setDiagnostic({
+      durationMs: 0,
+      bytes: null,
+      mimeType: '—',
+      envelopeSamples: 0,
+      serverMs: null,
+      provider: null,
+      errorCode: null,
+      rawText: null,
+      hallucination: false,
+      outcome: `micro : ${code}`,
+      evidence: null,
+    });
     if (code === 'PERMISSION_DENIED') {
       // Not `off`: every press asks the browser again, which is the whole point.
       setMicDenied(true);
@@ -113,19 +139,42 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
     setHeard(null);
     setNotice(null);
     setMicDenied(false); // A recording arrived: the microphone is allowed after all.
+    // The microphone's half of the diagnostic is known before anything is sent,
+    // so a turn that never reaches the server still says how long it recorded.
+    const report: VoiceDiagnostic = {
+      durationMs: recording.durationMs,
+      bytes: recording.audio.kind === 'blob' ? recording.audio.blob.size : null,
+      mimeType: recording.mimeType,
+      envelopeSamples: recording.envelope.length,
+      serverMs: null,
+      provider: null,
+      errorCode: null,
+      rawText: null,
+      hallucination: false,
+      outcome: null,
+      evidence: null,
+    };
     if (recording.durationMs < MIN_RECORDING_MS) {
+      setDiagnostic({ ...report, outcome: 'trop court, rien envoyé' });
       setNotice(fr.voice.tooShort);
       return;
     }
     let text: string;
+    const startedAt = Date.now();
     try {
       const result = await getTranscriber().transcribe(recording, {
         hint: latest.current.hint(),
         durationMs: recording.durationMs,
       });
       text = result.text;
+      report.serverMs = Date.now() - startedAt;
+      report.provider = result.provider;
+      report.rawText = result.text;
     } catch (caught) {
       const failure = caught instanceof TranscribeError ? caught : null;
+      report.serverMs = Date.now() - startedAt;
+      report.errorCode = failure?.code ?? 'DSA_VOICE_INTERNAL';
+      setDiagnostic(report);
       if (failure?.code === 'DSA_VOICE_NOT_CONFIGURED') setOff(true);
       setFallback(failureMessage(failure));
       return;
@@ -138,8 +187,15 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
     // said, so the view answers out loud like any other unrecognised turn — a
     // voice game has no buttons to read a silent notice from.
     const heardText = isLikelyHallucination(text) ? '' : cleanTranscript(text);
+    report.hallucination = isLikelyHallucination(text);
+    setDiagnostic(report);
     setHeard(heardText === '' ? null : heardText);
     await latest.current.onTranscript(heardText, recording);
+  }, []);
+
+  // Called by the view once it has decided; the turn's other facts are already in.
+  const reportOutcome = useCallback((outcome: string, evidence: DecisionEvidence | null = null) => {
+    setDiagnostic((current) => (current === null ? current : { ...current, outcome, evidence }));
   }, []);
 
   const capture = useVoiceCapture({
@@ -185,6 +241,8 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
       setMicDenied(false);
       setUnsupportedSeen(true);
     },
+    diagnostic,
+    reportOutcome,
     pressIn: capture.pressIn,
     pressOut: capture.pressOut,
     lock: capture.lock,

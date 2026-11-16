@@ -10,9 +10,10 @@ What you'll do, in order:
 | 2. Store them as Supabase secrets | Supabase dashboard | 2 min |
 | 3. Run the SQL (rate limit) | Supabase SQL Editor | 2 min |
 | 4. Deploy the function | Supabase dashboard **or** CLI | 5 min |
-| 5. Test it with curl | your terminal | 5 min |
+| 5. Test it (`npm run voice:probe`) | your terminal | 2 min |
 
-Sections 6 and 7 cover costs and troubleshooting. A room played with **Voix** is a
+Sections 6 to 9 cover costs, troubleshooting, the on-phone diagnostic, and how
+the recognition is measured. A room played with **Voix** is a
 different thing — a live call between the two phones, with nothing transcribed —
 and has its own section at the end: **"Appel dans une salle"**.
 
@@ -113,11 +114,62 @@ npx supabase functions deploy transcribe --project-ref <your-project-ref> --use-
 
 ---
 
-## 5. Test it with curl
+## 5. Test it
+
+### 5.0 The one command: `npm run voice:probe`
+
+Before any curl, from the repo root:
+
+```bash
+npm run voice:probe
+```
+
+It reads `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` from
+`apps/mobile/.env`, signs in anonymously exactly as the app does, sends a
+one-second synthetic buzz, and prints what came back:
+
+```
+DSA — sonde du serveur vocal
+projet           <ref>.supabase.co
+audio            bourdon.wav   34.4 ko   audio/wav   (bourdon de synthèse : teste la plomberie, pas la reconnaissance)
+
+1. connexion     200   jeton utilisateur obtenu
+2. transcribe    200   en 1221 ms   fournisseur groq
+
+3. ce que Groq a entendu
+  texte          « Sous-titrage ST' 501 »
+  mots           Sous-titrage [0→660]  ST' [660→680]  501 [680→700]
+
+4. ce que le jeu en fait
+  bavardage      OUI — ignoré, le joueur voit « Je n’ai pas bien compris »
+```
+
+**`fournisseur groq` is the proof that the recording reached Groq.** The subtitle
+credits are Whisper answering a noise with the end of a film — expected, and
+dropped by `isLikelyHallucination`, which is what the last line says.
+
+With a real recording of yourself, it also runs the words through the same
+`@dsa/voice` code the app runs, so you see the transcript **and** the answer the
+game would have given:
+
+```bash
+npm run voice:probe -- --file oui.m4a                          # a prompt allowing OUI / NON
+npm run voice:probe -- --file oui.m4a --classes OUI,NON,OUI_REPETE   # a spine question
+npm run voice:probe -- --text "Hui"                            # no network: just the matcher
+npm run voice:probe -- --refusals                              # also check the 401
+```
+
+`--text` costs nothing and sends nothing: it answers "what would the game do if
+Whisper wrote this?", which is how a line gets added to the eval table (§9).
+
+If the command fails, the error names the step — the sign-in, a missing secret, a
+provider — and §7 below gives the fix for each code.
+
+### 5.1 Or by hand, with curl
 
 You need the **Project URL** and the **anon (publishable) key** from **Project Settings → API** (the same values as `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`), and **anonymous sign-ins enabled** (DATABASE_SCHEMA.md, setup step 3).
 
-### 5.1 Record a test file
+#### Record a test file
 
 Any short recording of you saying "oui" works:
 
@@ -125,7 +177,7 @@ Any short recording of you saying "oui" works:
 - **Linux:** `arecord -d 2 -f S16_LE -r 16000 oui.wav` (then use `oui.wav` and `type=audio/wav` below).
 - **Mac:** QuickTime Player → File → New Audio Recording → export as `oui.m4a`.
 
-### 5.2 Get a user token (anonymous sign-in)
+#### Get a user token (anonymous sign-in)
 
 ```bash
 export SUPABASE_URL="https://<ref>.supabase.co"
@@ -140,7 +192,7 @@ echo "${USER_JWT:0:20}…"    # should start with eyJ
 
 This creates one anonymous test user, exactly like the app does. The token is valid for about an hour.
 
-### 5.3 Call the function
+#### Call the function
 
 ```bash
 curl -s -X POST "$SUPABASE_URL/functions/v1/transcribe" \
@@ -206,20 +258,62 @@ What this means for DSA: each spoken answer is one request, so on Groq's free pl
 | The text is right but OUI vs OUIOUIOUI is wrong | Expected: Whisper writes a held "ouiiii" as "Oui". The app decides that from the sound, not the text (`packages/voice`, calibration in the app settings). |
 | Whisper answers silence with "Sous-titrage Société Radio-Canada" or "Merci." | Expected, and handled: `isLikelyHallucination` (`packages/voice`) drops it, so the player gets "Je n'ai pas bien compris" instead of seeing the credits. If a new piece of boilerplate gets through, add it to that list. |
 | A name is heard but the game doesn't take it | The matcher found two names too close to tell apart, or none above its threshold. Measure before changing anything: `npm run voice:eval`. |
+| The Tireur says OUI and the game doesn't take it | First turn on **Réglages de la voix → Diagnostic** (see below) and look at one turn. `serveur` tells you whether it reached Groq; `texte` tells you what Whisper wrote; `lecture` and `jeu` tell you what the matcher made of it. If `lecture` says `mot —`, add that transcript to `scripts/voice-eval/answers.ts` and run `npm run voice:eval -- --answers`. |
 | Transcript in the wrong language on the fallback | Hugging Face's endpoint has no language parameter, so very short clips can be detected as another language. Groq always gets `language=fr`. |
 | CLI: `Cannot find project ref` | Add `--project-ref <ref>` (step 4b), or run `npx supabase link --project-ref <ref>` once. |
 | CLI: asks for Docker | Add `--use-api`. Update the CLI with `npx supabase@latest …` if the flag is unknown. |
 
 ---
 
-## 8. Measuring the recognition before changing it
+## 8. The diagnostic on the phone
+
+A voice game has no buttons, so every failure in the chain reaches the player as
+the same sentence: « Je n'ai pas bien compris ». **Réglages de la voix →
+Diagnostic** turns on a block under the microphone that says what actually
+happened on the last turn:
+
+```
+micro     1240 ms · 24 mesures · audio/webm · 9.4 ko
+serveur   groq · 1462 ms
+texte     « Oui. »
+lecture   OUI · via strict · ×1
+son       350 ms sur 650 ms · 1 salve · SIMPLE
+jeu       ANSWER OUI · SHORT_SOUND
+```
+
+Read it from the top; the first line that looks wrong is the one to chase.
+
+| Line | What it says | What a wrong value means |
+|---|---|---|
+| `micro` | length, metering samples, format, size | Under 250 ms: the hold was a slip of the finger and nothing was sent (`jeu` says `trop court`). `0 mesures`: the envelope could not be measured, so OUI vs OUIOUIOUI will always ask. `micro : PERMISSION_DENIED`: the microphone was refused. |
+| `serveur` | the provider and the round trip, or the `DSA_VOICE_…` code | A code here is §7 above; the function's **Logs** tab adds the exact `step`. |
+| `texte` | the transcript, exactly as Whisper wrote it | This is the line to copy into the eval table. `(vide)` means silence. |
+| `lecture` | the word, and which pass found it (`strict`, `lenient`, `closed-set`) | `mot —` is the matcher's failure, not the recogniser's: the words arrived and were not understood. |
+| `son` | the voiced length against this person's threshold, and the bursts | A length near the threshold, or two bursts, is why the phone asks « Redis-le ». Calibrate (`Régler ta voix`). |
+| `jeu` | what the game did, and why | `UNKNOWN` with a transcript above it means the eval table needs that line. |
+
+It is off by default, it holds no audio and no key, and it stays on this phone.
+Leave it off to play.
+
+---
+
+## 9. Measuring the recognition before changing it
 
 `npm run voice:eval` runs the whole book's names through the intent matcher with
 distortions a French recogniser really produces, and prints what it finds, gets
 wrong, and can't resolve. It needs `data/book` on the machine; it calls no API and
 costs nothing.
 
-Use it before touching `phoneticKey` or `INTENT_THRESHOLDS` in `packages/core`.
+`npm run voice:eval -- --answers` does the same for the Tireur's five words, with
+two tables: what must be understood, and what must be refused (short French
+words next to "oui" and "non", book names, Whisper's subtitle credits).
+`-- --answers --sweep` prints both over a range of thresholds, so a constant in
+`ANSWER_MATCH` is never moved on taste. The numbers to keep are **zero false
+accepts** first and recall second: a wrong OUI is a wrong branch the player
+cannot see, a miss only costs « Peux-tu répéter ? ».
+
+Use it before touching `phoneticKey` or `INTENT_THRESHOLDS` in `packages/core`,
+or `answerKey` / `ANSWER_MATCH` in `packages/voice`.
 The first change tried there — folding French nasal vowels the way the
 carnetdevente matcher does — read well and measured **worse**: with 1,087 names,
 collapsing "an/en/on" to one marker loses more than it joins, and the hit rate on
@@ -234,7 +328,13 @@ npm run voice:eval -- --cases mes-enregistrements.tsv
 
 Twenty or thirty lines from an actual player is enough to tell whether a change
 helps, and it is the only way to know whether the problem is the matcher or the
-recognition itself.
+recognition itself. The quickest way to collect them: play one game with the
+diagnostic on (§8) and write down the `texte` line each turn, or run
+`npm run voice:probe -- --file <recording>` on recordings from a phone.
+
+For the Tireur's five words the table lives in code, in
+`scripts/voice-eval/answers.ts`: add the transcript and what you meant, and the
+`--answers` run above tells you whether the matcher takes it.
 
 ---
 

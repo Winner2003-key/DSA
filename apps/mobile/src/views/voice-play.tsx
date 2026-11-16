@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { View } from 'react-native';
-import { buildTranscribeHint } from '@dsa/voice';
+import { buildTranscribeHint, formatDiagnostic } from '@dsa/voice';
 
 import { AppText, MicNotice, NoticeBanner, SecondaryButton, VoiceButton } from '@/components';
 import { fr } from '@/i18n/fr';
@@ -24,12 +24,43 @@ export function isVoiceGame(game: UseGame): boolean {
 }
 
 /**
+ * « Réglages de la voix → Diagnostic » is on: the last turn as facts, under the
+ * microphone. Every failure in the chain reaches the player as the same
+ * sentence, so this is the only place that says which one it was.
+ */
+function VoiceDiagnostic({ turn }: { turn: VoiceTurn }) {
+  const theme = useTheme();
+  if (!turn.diagnostic) return null;
+  return (
+    <View
+      testID="voice-diagnostic"
+      style={{
+        gap: 2,
+        borderRadius: theme.radius.slab,
+        borderWidth: 1,
+        borderColor: theme.colors.line,
+        backgroundColor: theme.colors.surface,
+        paddingHorizontal: theme.space.xs,
+        paddingVertical: theme.space.xxs,
+      }}
+    >
+      {formatDiagnostic(turn.diagnostic).map((line) => (
+        <AppText key={line.label} variant="small" tone="soft">
+          {`${line.label.padEnd(10)}${line.value}`}
+        </AppText>
+      ))}
+    </View>
+  );
+}
+
+/**
  * The microphone block of a game screen: the fallback banner, the microphone
  * with its live state, and what was heard. A voice game has no answer buttons:
  * when the voice cannot work, the banner says to start again with Boutons.
  */
 function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; enabled: boolean; instruction: string; testID: string }) {
   const theme = useTheme();
+  const { diagnostic } = useVoiceSettings();
   return (
     <View testID={testID} style={{ gap: theme.space.xs }}>
       {/*
@@ -76,6 +107,7 @@ function VoicePanel({ turn, enabled, instruction, testID }: { turn: VoiceTurn; e
           ) : null}
         </>
       )}
+      {diagnostic ? <VoiceDiagnostic turn={turn} /> : null}
     </View>
   );
 }
@@ -120,20 +152,25 @@ export function DecouvreurVoice({ game, names }: DecouvreurVoiceProps) {
       const action = interpretDecouvreur(text, current, known);
       switch (action.kind) {
         case 'ASK':
+          turn.reportOutcome('ASK');
           await now.ask();
           return;
         case 'GUESS':
+          turn.reportOutcome(`GUESS ${action.name}`);
           await now.guess(action.name);
           return;
         case 'BACK':
           if (action.stepIndex !== null) {
+            turn.reportOutcome(`BACK ${action.stepIndex}`);
             await now.goBack(action.stepIndex);
             return;
           }
+          turn.reportOutcome('BACK, question non reconnue');
           turn.setNotice(fr.voice.backWhere);
           speak(fr.voice.backWhere);
           return;
         default:
+          turn.reportOutcome('UNKNOWN');
           turn.setNotice(fr.voice.notUnderstood);
           speak(fr.voice.notUnderstood);
       }
@@ -190,21 +227,26 @@ export function TireurVoice({ game, paused = false }: { game: UseGame; paused?: 
       if (decision.kind === 'ANSWER') {
         if (guessing) {
           const label = guessConfirmation(decision);
+          turn.reportOutcome(`CONFIRME ${label ?? '—'}`, decision.evidence);
           if (label) await now.confirmGuess(label);
         } else {
+          turn.reportOutcome(`ANSWER ${decision.label}`, decision.evidence);
           await now.answer(decision.label);
         }
         return;
       }
       if (decision.kind === 'CONFIRM') {
+        turn.reportOutcome(`CONFIRM ${decision.options.join('/')}`, decision.evidence);
         turn.setNotice(fr.voice.sayAgain);
         speak(fr.voice.sayAgain);
         return;
       }
       if (decision.kind === 'REWIND' && decision.count <= current.path.length) {
+        turn.reportOutcome(`REWIND ×${decision.count}`, decision.evidence);
         await now.rewind(decision.count);
         return;
       }
+      turn.reportOutcome(decision.kind === 'REWIND' ? `REWIND ×${decision.count} impossible` : 'UNKNOWN', decision.evidence);
       turn.setNotice(fr.voice.notUnderstood);
       speak(fr.voice.notUnderstood);
     },

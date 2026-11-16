@@ -1,6 +1,7 @@
 /**
- * Voice settings kept on this device (AsyncStorage): the Tireur's calibration (GRAPH_SPECIFICATION §1). A tiny shared store, so the game
- * screen and "Réglages de la voix" always agree.
+ * Voice settings kept on this device (AsyncStorage): the Tireur's calibration
+ * (GRAPH_SPECIFICATION §1) and the voice diagnostic. A tiny shared store, so the
+ * game screen and "Réglages de la voix" always agree.
  */
 import { useEffect, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,14 +13,20 @@ export interface VoiceSettings {
   calibration: Calibration | null;
   /** The calibration was offered once already ("Plus tard" or done). */
   calibrationOffered: boolean;
+  /**
+   * Show what happened on the last spoken turn under the microphone. Off by
+   * default: it is for finding out why voice is not working, not for playing.
+   */
+  diagnostic: boolean;
 }
 
 export const VOICE_KEYS = {
   calibration: 'dsa.voice.calibration',
   offered: 'dsa.voice.calibrationOffered',
+  diagnostic: 'dsa.voice.diagnostic',
 } as const;
 
-const initial: VoiceSettings = { loaded: false, calibration: null, calibrationOffered: false };
+const initial: VoiceSettings = { loaded: false, calibration: null, calibrationOffered: false, diagnostic: false };
 
 let current: VoiceSettings = initial;
 let loading: Promise<void> | null = null;
@@ -35,9 +42,10 @@ export function loadVoiceSettings(): Promise<void> {
   if (!loading) {
     loading = (async () => {
       try {
-        const [calibration, offered] = await Promise.all([
+        const [calibration, offered, diagnostic] = await Promise.all([
           AsyncStorage.getItem(VOICE_KEYS.calibration),
           AsyncStorage.getItem(VOICE_KEYS.offered),
+          AsyncStorage.getItem(VOICE_KEYS.diagnostic),
         ]);
         let parsed: Calibration | null = null;
         try {
@@ -45,7 +53,7 @@ export function loadVoiceSettings(): Promise<void> {
         } catch {
           parsed = null;
         }
-        set({ loaded: true, calibration: parsed, calibrationOffered: offered === '1' });
+        set({ loaded: true, calibration: parsed, calibrationOffered: offered === '1', diagnostic: diagnostic === '1' });
       } catch {
         set({ loaded: true });
       } finally {
@@ -69,6 +77,11 @@ export function saveCalibration(calibration: Calibration): void {
 export function clearCalibration(): void {
   set({ calibration: null });
   AsyncStorage.removeItem(VOICE_KEYS.calibration).catch(() => undefined);
+}
+
+export function setVoiceDiagnostic(diagnostic: boolean): void {
+  set({ diagnostic });
+  AsyncStorage.setItem(VOICE_KEYS.diagnostic, diagnostic ? '1' : '0').catch(() => undefined);
 }
 
 export function markCalibrationOffered(): void {

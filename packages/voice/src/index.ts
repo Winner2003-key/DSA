@@ -29,6 +29,9 @@ export {
 } from './calibration';
 export type { Calibration, CalibrationQuality } from './calibration';
 
+export { ANSWER_CANDIDATES, ANSWER_MATCH, answerKey, answerSimilarity, matchClosedSet, syllables } from './answer-match';
+export type { ClosedSetMatch, ClosedSetOptions, ClosedSetValue } from './answer-match';
+
 export { BORDERLINE_RATIO, CANONICAL_LABELS, classifySound, decideAnswer, readTranscript } from './answer-decision';
 export type {
   AnswerDecision,
@@ -40,6 +43,9 @@ export type {
   SoundVerdict,
   TranscriptReading,
 } from './answer-decision';
+
+export { formatDiagnostic } from './diagnostic';
+export type { DiagnosticLine, VoiceDiagnostic } from './diagnostic';
 
 export { isLikelyHallucination } from './transcript';
 
