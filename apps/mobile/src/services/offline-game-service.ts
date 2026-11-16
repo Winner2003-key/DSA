@@ -620,6 +620,8 @@ export class OfflineGameService implements GameService {
       parent_id: section.parentId,
       depth: section.depth,
       characters: section.characters,
+      node_type: section.nodeType,
+      answer_label: section.answerLabel,
     }));
   }
 

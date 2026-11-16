@@ -22,7 +22,7 @@ export { RepeatMark } from './repeat-mark';
 export { RoomCodeDisplay } from './room-code-display';
 export { RoomQr } from './room-qr';
 export { Screen } from './screen';
-export { ScopePicker, buildTree } from './scope-picker';
+export { ScopePicker, pickerRows, scopeTitles } from './scope-picker';
 export { SeatCard, presenceLabel } from './seat-card';
 export { SecretCard } from './secret-card';
 export { Sheet } from './sheet';

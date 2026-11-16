@@ -49,6 +49,13 @@ begin
      or to_regprocedure('public.dsa_normalize_settings(jsonb,uuid)') is null then
     raise exception 'DSA TEST SETUP: this project predates the rules-and-practice update; run 07_rules_scope.sql (or the new 00_all_migrations.sql) first';
   end if;
+  if not exists (
+       select 1 from pg_proc p
+       where p.oid = to_regprocedure('public.dsa_list_sections(text)')
+         and 'answer_label' = any (p.proargnames)
+     ) then
+    raise exception 'DSA TEST SETUP: this project predates the book-outline update; run 09_book_outline.sql (or the new 00_all_migrations.sql) first';
+  end if;
   if not exists (select 1 from public.graphs where slug = 'mini') then
     raise exception 'DSA TEST SETUP: run 01_seed_mini_graph.sql first';
   end if;
@@ -2456,6 +2463,18 @@ begin
     (select l.characters::text from public.dsa_list_sections('mini') l where l.node_id = v_evang), '3');
   perform dsa_test.eq(c, 'names under LIE A ABRAHAM',
     (select l.characters::text from public.dsa_list_sections('mini') l where l.node_id = dsa_test.nid('P/lie-a-abraham')), '4');
+
+  ---- the outline: each row says what it is and which answer leads into it
+  perform dsa_test.eq(c, 'ANCIEN is a question',
+    (select l.node_type from public.dsa_list_sections('mini') l where l.node_id = dsa_test.nid('ancien')), 'QUESTION');
+  perform dsa_test.eq(c, 'LES EVANGILES is a category',
+    (select l.node_type from public.dsa_list_sections('mini') l where l.node_id = v_evang), 'CATEGORY');
+  perform dsa_test.eq(c, 'the Nouveau Testament is the NON of ANCIEN',
+    (select l.answer_label from public.dsa_list_sections('mini') l where l.node_id = v_nouveau), 'NON');
+  perform dsa_test.eq(c, 'LES 3 DERNIERS is reached with JE NE SAIS PAS',
+    (select l.answer_label from public.dsa_list_sections('mini') l where l.node_id = v_esdras), 'JE NE SAIS PAS');
+  perform dsa_test.eq(c, 'the root is reached by no answer',
+    (select coalesce(l.answer_label, '-') from public.dsa_list_sections('mini') l where l.parent_id is null), '-');
 
   ---- it exposes NO leaf, no name and no clue
   perform dsa_test.eq(c, 'no CHARACTER node is listed',

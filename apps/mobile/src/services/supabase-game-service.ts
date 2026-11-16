@@ -1,3 +1,5 @@
+import type { NodeType } from '@dsa/core';
+
 import type { GameService } from './game-service';
 import { DsaError, toDsaError } from './errors';
 import { createGameSubscription, type OpenChannel, type RealtimeStatus } from './realtime-sync';
@@ -409,6 +411,8 @@ export class SupabaseGameService implements GameService {
         parent_id: typeof r.parent_id === 'string' ? r.parent_id : null,
         depth: typeof r.depth === 'number' ? r.depth : 0,
         characters: typeof r.characters === 'number' ? r.characters : 0,
+        node_type: typeof r.node_type === 'string' ? (r.node_type as NodeType) : null,
+        answer_label: typeof r.answer_label === 'string' ? r.answer_label : null,
       }];
     });
   }

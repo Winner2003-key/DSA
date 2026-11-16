@@ -7,12 +7,11 @@
 import React from 'react';
 import { act, fireEvent, renderHook, waitFor } from '@testing-library/react-native';
 
-import { buildTree } from '@/components/scope-picker';
 import { setGameService } from '@/services';
 import { OfflineGameService } from '@/services/offline-game-service';
 import { useGame } from '@/state/use-game';
 import { GameHeader } from '@/components';
-import { ScopePicker } from '@/components/scope-picker';
+import { ScopePicker, pickerRows } from '@/components/scope-picker';
 import type { BookSection } from '@/services/types';
 
 import { renderWithProviders } from './helpers';
@@ -156,62 +155,93 @@ describe('the drawn name stays inside the scope', () => {
 });
 
 describe('the picker', () => {
-  it('drops the root and hangs each section under its parent', async () => {
+  it('shows the book’s outline, not the graph’s shape', async () => {
     const { rows } = await sections();
-    const tree = buildTree(rows);
-    // The top level is ANCIEN's own tree, not the START node.
-    expect(tree.map((n) => n.label)).not.toContain('DSA');
-    expect(tree.map((n) => n.label)).toEqual(['ANCIEN']);
-    const ancien = tree[0]!;
-    expect(ancien.children.map((c) => c.label)).toEqual(['HOMME', 'HOMME']);
+    const outline = pickerRows(rows);
+
+    // The graph is a chain of questions — « ANCIEN » with two children both
+    // called « HOMME ». The player reads the book's own map instead.
+    expect(outline.map((row) => row.label)).toEqual(['Ancien Testament', 'Nouveau Testament']);
+    expect(outline[0]?.children.map((row) => row.label)).toEqual([
+      'PENTATEUQUE',
+      'LES 3 PREMIERS',
+      'LIVRE DE SAMUEL',
+      'LES ROIS',
+      'LES 3 DERNIERS',
+    ]);
+    // Each part counts only the names it really holds.
+    expect(outline[0]?.characters).toBe(10);
+    expect(outline[1]?.characters).toBe(3);
   });
 
-  it('shows the counts, ticks a branch, and confirms a scope', async () => {
+  it('« Tout le livre » is the first choice, and the one in force by default', async () => {
     const { rows } = await sections();
     const chosen: string[][] = [];
     const screen = await renderWithProviders(
-      <ScopePicker
-        visible
-        sections={rows}
-        value={[]}
-        onClose={() => undefined}
-        onConfirm={(scope) => chosen.push(scope)}
-      />,
+      <ScopePicker visible sections={rows} value={[]} onClose={() => undefined} onConfirm={(scope) => chosen.push(scope)} />,
     );
 
-    const ancien = rows.find((r) => r.label === 'ANCIEN')!;
-    expect(screen.getByTestId(`scope-row-${ancien.node_id}`)).toBeTruthy();
-    // Nothing ticked yet: the hint says it would be the whole book, and there is
-    // nothing to confirm.
-    expect(screen.getByTestId('scope-count')).toHaveTextContent('Rien de coché : ce sera tout le livre.');
-    expect(screen.getByTestId('scope-confirm').props.accessibilityState.disabled).toBe(true);
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId(`scope-row-${ancien.node_id}`));
-    });
-    expect(screen.getByTestId('scope-count')).toHaveTextContent('1 section · 13 noms sur 13');
-    expect(screen.getByTestId('scope-confirm').props.accessibilityState.disabled).toBe(false);
+    expect(screen.getByTestId('scope-whole-book').props.accessibilityState.checked).toBe(true);
+    expect(screen.getByTestId('scope-count')).toHaveTextContent('Tout le livre : le nom peut venir de n’importe où.');
+    expect(screen.getByText('Jouer avec tout le livre')).toBeTruthy();
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('scope-confirm'));
     });
-    expect(chosen).toEqual([[ancien.node_id]]);
+    expect(chosen).toEqual([[]]);
   });
 
-  it('« Finalement, tout le livre » confirms an empty scope', async () => {
+  it('ticks a part of the book and confirms the sections underneath it', async () => {
     const { rows } = await sections();
+    const outline = pickerRows(rows);
+    const nouveau = outline[1]!;
+    const chosen: string[][] = [];
+    const screen = await renderWithProviders(
+      <ScopePicker visible sections={rows} value={[]} onClose={() => undefined} onConfirm={(scope) => chosen.push(scope)} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`scope-row-${nouveau.key}`));
+    });
+    expect(screen.getByTestId('scope-count')).toHaveTextContent('1 partie · 3 noms sur 13');
+    expect(screen.getByTestId('scope-whole-book').props.accessibilityState.checked).toBe(false);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('scope-confirm'));
+    });
+    expect(chosen).toEqual([nouveau.nodeIds]);
+
+    // And that scope really is the Nouveau Testament.
+    const service = new OfflineGameService({ persist: false });
+    const { sessionId } = await service.createSession({
+      graphSlug: 'mini',
+      mode: 'LOCAL',
+      settings: { scope: nouveau.nodeIds },
+    });
+    expect(['JESUS-CHRIST', 'JACQUES']).toContain((await service.getMySecret(sessionId)).name);
+  });
+
+  it('going back to « Tout le livre » clears what was ticked', async () => {
+    const { rows } = await sections();
+    const outline = pickerRows(rows);
     const chosen: string[][] = [];
     const screen = await renderWithProviders(
       <ScopePicker
         visible
         sections={rows}
-        value={[rows[1]!.node_id]}
+        value={outline[0]!.nodeIds}
         onClose={() => undefined}
         onConfirm={(scope) => chosen.push(scope)}
       />,
     );
+    // It opens on the choice in force.
+    expect(screen.getByTestId(`scope-row-${outline[0]!.key}`).props.accessibilityState.checked).toBe(true);
+
     await act(async () => {
       fireEvent.press(screen.getByTestId('scope-whole-book'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('scope-confirm'));
     });
     expect(chosen).toEqual([[]]);
   });

@@ -70,6 +70,7 @@ If the Découvreur named the wrong leaf, or reaches the end of a list without a 
 ## 6. End of the game
 
 - The end screen shows the name and the game statistics, then **the book's own path to the name** (animated graph), whatever the outcome. See "Time limits, name changes and learning from a lost game", point 5.
+- **The game goes on with the next name.** From that screen, « Nom suivant » draws another name with the settings already chosen (mode, Voix or Boutons, chronomètre, partie du livre), so a pair plays name after name until they stop. Changing a setting is a separate choice (« Changer les réglages »), and « Accueil » ends the session. In a room, « Nom suivant » is the rematch the other phone is asked to join, with the option of swapping roles.
 
 ## The name card
 

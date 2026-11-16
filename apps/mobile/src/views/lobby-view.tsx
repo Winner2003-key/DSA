@@ -8,6 +8,7 @@ import { shareRoom } from '@/rooms/share';
 import { joinUrlFor } from '@/rooms/use-room';
 import { isCallGame, type GameState } from '@/services/types';
 import { useCallAllowance } from '@/state/use-call-allowance';
+import { useScopeLabels } from '@/state/use-scope-labels';
 import { useTheme } from '@/theme';
 import { Share2, X } from '@/components';
 
@@ -34,6 +35,8 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy, rematch = n
   const theme = useTheme();
   const [notice, setNotice] = useState<string | null>(null);
   const code = state.room_code ?? '';
+  // The part of the book, in the words of the picker the creator used.
+  const scopeLabels = useScopeLabels(state.settings.scope, state.scope_labels);
   const url = code ? joinUrlFor(code) : '';
 
   // A Voix room is a call: say how long it may last and what is left today,
@@ -102,8 +105,7 @@ export function LobbyView({ state, room, busy, onCancel, declinedBy, rematch = n
             : ''}
         </AppText>
         <AppText variant="small" tone="faint" testID="lobby-scope">
-          {fr.lobby.scope} :{' '}
-          {state.scope_labels.length === 0 ? fr.setup.scopeWhole : state.scope_labels.join(', ')}
+          {fr.lobby.scope} : {scopeLabels.length === 0 ? fr.setup.scopeWhole : scopeLabels.join(', ')}
         </AppText>
       </View>
 

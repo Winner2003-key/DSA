@@ -160,7 +160,8 @@ export const fr = {
     timerChosenByCreator: 'Celui qui crée la partie choisit pour les deux joueurs.',
 
     // "Practise a part of the book": it changes only which name is drawn.
-    scopeSectionTitle: 'La partie du livre',
+    /** The line on « Nouvelle partie » that opens the sommaire, with its value. */
+    scopeSectionTitle: 'Partie du livre',
     scopeWhole: 'Tout le livre',
     scopeWholeHint: 'Le nom peut venir de n’importe quelle page.',
     scopeChoose: 'Choisir une partie',
@@ -170,19 +171,27 @@ export const fr = {
     /** Always said, so nobody expects the questions to be shortened too. */
     scopeQuestionsUnchanged: 'Les questions commencent toujours au début du livre.',
 
-    scopeTitle: 'Quelle partie du livre ?',
-    scopeHint: 'Coche une ou plusieurs sections. Le nom à trouver viendra de là.',
+    scopeTitle: 'D’où vient le nom à trouver ?',
+    scopeHint: 'Tout le livre, ou une partie : l’Ancien ou le Nouveau, les hommes ou les femmes, un livre précis.',
     scopeLoading: 'On lit le sommaire du livre…',
     scopeEmpty: 'Aucune section à afficher.',
-    scopeTickAll: 'Tout cocher',
     scopeConfirm: 'Utiliser cette partie',
-    scopeWholeBook: 'Finalement, tout le livre',
-    scopeNoneChosen: 'Rien de coché : ce sera tout le livre.',
+    scopeConfirmWhole: 'Jouer avec tout le livre',
+    scopeNoneChosen: 'Tout le livre : le nom peut venir de n’importe où.',
     scopeNames: (n: number) => (n <= 1 ? `${n} nom` : `${n} noms`),
-    scopeChosen: (sections: number, names: number, total: number) =>
-      `${sections === 1 ? '1 section' : `${sections} sections`} · ${names <= 1 ? `${names} nom` : `${names} noms`} sur ${total}`,
+    scopeChosen: (parts: number, names: number, total: number) =>
+      `${parts === 1 ? '1 partie' : `${parts} parties`} · ${names <= 1 ? `${names} nom` : `${names} noms`} sur ${total}`,
     scopeExpand: (label: string) => `Ouvrir ${label}`,
     scopeCollapse: (label: string) => `Fermer ${label}`,
+    /**
+     * The two questions that cut the book in two rather than open a list. The
+     * book asks « ANCIEN ? » and « HOMME ? »; the sommaire names both answers,
+     * so a player reads the map of the book instead of the graph's wording.
+     */
+    scopeSplits: {
+      ANCIEN: { yes: 'Ancien Testament', no: 'Nouveau Testament' },
+      HOMME: { yes: 'Hommes', no: 'Femmes' },
+    },
     /** The game screen and the lobby: « Partie : LES EVANGILES ». */
     scopeSummary: (labels: string[]) => `Partie : ${labels.join(', ')}`,
   },
@@ -558,7 +567,16 @@ export const fr = {
     /** "Trouvé en 1 min 12 s sur 2 min" — only for a timed game that was won. */
     foundIn: (taken: string, limit: string) => `Trouvé en ${taken} sur ${limit}`,
     pathIntro: 'Voici le chemin que vous avez parcouru.',
-    replay: 'Rejouer',
+    /**
+     * The game goes on until the players stop it: a name found is followed by
+     * the next one, with the settings already chosen. "Préparer la partie" is
+     * only for changing them.
+     */
+    nextName: 'Nom suivant',
+    nextNameHint: 'Mêmes réglages, un nouveau nom.',
+    /** What the settings in force are, under the button: « Boutons · Sans chronomètre · Tout le livre ». */
+    settingsLine: (parts: string[]) => parts.join(' · '),
+    changeSettings: 'Changer les réglages',
     home: 'Accueil',
     statQuestions: 'questions',
     statQuestion: 'question',

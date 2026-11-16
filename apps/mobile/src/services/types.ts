@@ -170,6 +170,14 @@ export interface BookSection {
   depth: number;
   /** How many playable names are underneath. */
   characters: number;
+  /**
+   * QUESTION, CATEGORY, GROUP… and the answer that leads here from the section
+   * above. Together they turn the graph's shape into the book's outline
+   * (`bookOutline` in `@dsa/core`). Both are null on a server that predates
+   * 0012_book_outline.sql: the picker then shows the rows as they come.
+   */
+  node_type: NodeType | null;
+  answer_label: string | null;
 }
 
 export interface Secret {

@@ -21,6 +21,7 @@ import {
   PrimaryButton,
   Screen,
   ScopePicker,
+  scopeTitles,
   SoundToggle,
   TextField,
   TopBar,
@@ -120,7 +121,8 @@ export default function PreparerScreen() {
       .finally(() => setSectionsLoading(false));
   };
 
-  const scopeLabels = sections.filter((s) => scope.includes(s.node_id)).map((s) => s.label);
+  const scopeLabels = scopeTitles(sections, scope);
+  const scopeValue = scope.length === 0 ? fr.setup.scopeWhole : scopeLabels.join(' · ') || fr.setup.scopeChoose;
 
   /**
    * In a room, Voix means a live call between the two phones, so its limits
@@ -283,10 +285,16 @@ export default function PreparerScreen() {
             />
           </View>
 
+          {/*
+            The book is the game: this line says which part of it the name will
+            come from, shows the choice in force, and opens the sommaire. It
+            reads as a setting with a value, never as a button whose purpose has
+            to be guessed.
+          */}
           <Pressable
             testID="scope-part"
             accessibilityRole="button"
-            accessibilityLabel={scope.length === 0 ? fr.setup.scopeWhole : fr.setup.scopeSummary(scopeLabels)}
+            accessibilityLabel={`${fr.setup.scopeSectionTitle} : ${scopeValue}`}
             accessibilityHint={fr.setup.scopeQuestionsUnchanged}
             disabled={starting}
             onPress={openScopePicker}
@@ -294,19 +302,24 @@ export default function PreparerScreen() {
               minHeight: theme.touch.secondary,
               flexDirection: 'row',
               alignItems: 'center',
-              gap: theme.space.xs,
+              gap: theme.space.sm,
               borderRadius: theme.radius.slab,
               borderWidth: 1,
-              borderColor: theme.colors.line,
+              borderColor: scope.length > 0 ? theme.colors.brass : theme.colors.line,
               backgroundColor: pressed ? theme.colors.surface : theme.colors.surfaceRaised,
               paddingHorizontal: theme.space.sm,
               paddingVertical: theme.space.xs,
             })}
           >
             <IconTile icon={BookOpen} selected={scope.length > 0} />
-            <AppText variant="small" weight="semibold" numberOfLines={1} style={{ flex: 1 }}>
-              {scope.length === 0 ? fr.setup.scopeWhole : scopeLabels.join(', ') || fr.setup.scopeChoose}
-            </AppText>
+            <View style={{ flex: 1 }}>
+              <AppText variant="small" weight="semibold" numberOfLines={1}>
+                {fr.setup.scopeSectionTitle}
+              </AppText>
+              <AppText variant="micro" tone="soft" numberOfLines={1} testID="scope-part-value">
+                {scopeValue}
+              </AppText>
+            </View>
             <ChevronRight size={18} color={theme.colors.inkFaint} />
           </Pressable>
 

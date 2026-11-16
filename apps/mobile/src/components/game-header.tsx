@@ -7,6 +7,7 @@ import { CountdownRing } from './countdown-ring';
 import { Eye, EyeOff, ICON_STROKE } from './icon';
 import { fr } from '@/i18n/fr';
 import type { UseGame } from '@/state/use-game';
+import { useScopeLabels } from '@/state/use-scope-labels';
 import { useTheme } from '@/theme';
 
 export interface GameHeaderProps {
@@ -30,9 +31,14 @@ export function turnOf(game: UseGame): Role | null {
  * (GRAPH_SPECIFICATION §9); in an untimed one it is just the question counter,
  * exactly as before.
  */
+const EMPTY: string[] = [];
+
 export function GameHeader({ game, viewRole }: GameHeaderProps) {
   const theme = useTheme();
   const { state } = game;
+  // Named the way the picker names it, so « Ancien Testament » does not come
+  // back as the label of the node behind it. Hooks run before the early return.
+  const scopeLabels = useScopeLabels(state?.settings.scope ?? EMPTY, state?.scope_labels ?? EMPTY);
   if (!state) return null;
 
   const turn = turnOf(game);
@@ -132,9 +138,9 @@ export function GameHeader({ game, viewRole }: GameHeaderProps) {
       ) : null}
       {/* Which part of the book this game draws from. The questions are unchanged,
           so this is information, not an instruction. */}
-      {state.scope_labels.length > 0 ? (
+      {scopeLabels.length > 0 ? (
         <AppText variant="micro" weight="semibold" tone="faint" testID="scope-summary" numberOfLines={2}>
-          {fr.setup.scopeSummary(state.scope_labels)}
+          {fr.setup.scopeSummary(scopeLabels)}
         </AppText>
       ) : null}
     </View>

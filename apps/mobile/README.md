@@ -56,11 +56,12 @@ The phone and the computer must be on the same network. If they aren't, use `npx
 
 ## Practising one part of the book ("Choisir une partie")
 
-- In Préparer la partie (and in room creation, where the creator chooses for both phones; the lobby shows it read-only): **« Tout le livre »**, the default, or **« Choisir une partie »**, which opens a picker of the book's sections as a compact tree with the number of names on each, "tout cocher" on any branch, and multi-select.
+- On « Nouvelle partie » (and in room creation, where the creator chooses for both phones; the lobby shows it read-only) a line named **« Partie du livre »** shows the choice in force — « Tout le livre » by default — and opens the sommaire: **« D'où vient le nom à trouver ? »**, with « Tout le livre » as its first row and then the book's outline, each part with the number of names on it.
+- **The sommaire is the book's outline, not the graph's shape:** ANCIEN and NOUVEAU, each with its Hommes and Femmes, and under them the lists the book prints (PENTATEUQUE, LES 3 PREMIERS, LIVRE DE SAMUEL, LES ROIS…). The rule is `bookOutline` in `@dsa/core` (see GRAPH_SPECIFICATION §2, "The outline the picker shows"); the French names of the four branches are in `fr.setup.scopeSplits`.
 - **It changes only which name is drawn.** The questions still start at the first one, so the pair walks the whole book down to that part and keeps learning the path. The game screen writes « Partie : LES EVANGILES » under the header.
-- The picker is fed by `dsa_list_sections`, which returns labels, parents, depths and counts and **never a name, a clue or a leaf** — no more than the book's table of contents.
+- The picker is fed by `dsa_list_sections`, which returns labels, parents, depths, counts, the node type and the answer that leads in — and **never a name, a clue or a leaf**, no more than the book's table of contents.
 - Name changes stay inside the chosen part, and a rematch keeps it.
-- **Server:** needs `07_rules_scope.sql` (or the current `00`).
+- **Server:** needs `09_book_outline.sql` (or the current `00`). On an older server the rows carry no answer and the picker falls back to the plain tree.
 
 ## "QUESTION" — going back a whole list
 
@@ -69,6 +70,8 @@ The Tireur's **QUESTION ×1/×2/×3** sends the pair back to the question that *
 ## The end of every game
 
 The result screen shows the game card first — "Trouvé !", "Temps écoulé" or "Partie arrêtée", the name, the statistics and, for a timed game that was won, "Trouvé en 1 min 12 s sur 2 min" — and then **the book's own path to that name** in the animated `PathGraph`: every question in book order with the right answers, down to the card. It is not the players' path, which stays behind "Voir le chemin" during play.
+
+**And then the next name.** « Nom suivant » draws another name with the settings already in force — same mode, same Voix or Boutons, same chronomètre, same partie du livre — and the line under the button says what those are. A pair plays name after name without passing through « Nouvelle partie » again; **« Changer les réglages »** is what goes back there, and **« Accueil »** stops. In a room the same button is the rematch, which also offers to swap the roles.
 
 ## Voice ("Façon de jouer : Voix")
 

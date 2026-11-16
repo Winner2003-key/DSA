@@ -1,14 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
+import { bookOutline } from '@dsa/core';
+import type { OutlineSection, Section } from '@dsa/core';
 
 import { AppText } from './app-text';
-import { LinkButton, PrimaryButton } from './buttons';
+import { PrimaryButton } from './buttons';
 import { Sheet } from './sheet';
 import { fr } from '@/i18n/fr';
 import { lightFeedback } from '@/lib/haptics';
 import type { BookSection } from '@/services/types';
 import { useTheme } from '@/theme';
-import { Check } from './icon';
+import { BookOpen, Check } from './icon';
 
 export interface ScopePickerProps {
   visible: boolean;
@@ -20,121 +22,155 @@ export interface ScopePickerProps {
   loading?: boolean;
 }
 
-interface TreeNode extends BookSection {
-  children: TreeNode[];
+/** `dsa_list_sections` rows as `@dsa/core` reads them. */
+function asSections(rows: readonly BookSection[]): Section[] {
+  return rows.map((row) => ({
+    nodeId: row.node_id,
+    label: row.label,
+    parentId: row.parent_id,
+    depth: row.depth,
+    characters: row.characters,
+    nodeType: row.node_type ?? 'CATEGORY',
+    answerLabel: row.answer_label ?? null,
+  }));
 }
 
 /**
- * Builds the picker's tree from the flat `dsa_list_sections` rows. The root
- * (START, the whole book) is dropped: choosing everything is « Tout le livre »,
- * which is the empty scope, not a ticked box.
+ * The book's outline, as the picker shows it: ANCIEN and NOUVEAU, each with its
+ * HOMME and FEMME, and under them the lists the book prints (PENTATEUQUE, LES 3
+ * PREMIERS, LIVRE DE SAMUEL…). The rule is in `@dsa/core`; the French wording of
+ * the four branches is here, with the rest of the interface.
  */
-export function buildTree(sections: BookSection[]): TreeNode[] {
-  const byId = new Map<string, TreeNode>();
-  for (const section of sections) byId.set(section.node_id, { ...section, children: [] });
-
-  const roots: TreeNode[] = [];
-  for (const section of sections) {
-    const node = byId.get(section.node_id) as TreeNode;
-    const parent = section.parent_id === null ? undefined : byId.get(section.parent_id);
-    if (parent) parent.children.push(node);
-    else roots.push(node);
-  }
-  // Skip the START node itself and offer its children as the top level.
-  return roots.flatMap((root) => (root.depth === 0 ? root.children : [root]));
+export function pickerRows(sections: readonly BookSection[]): OutlineSection[] {
+  return bookOutline(asSections(sections), { splits: fr.setup.scopeSplits });
 }
 
-/** Every section id at or under `node`. */
-function subtreeIds(node: TreeNode): string[] {
-  return [node.node_id, ...node.children.flatMap(subtreeIds)];
+/** Rows whose whole content is already in `scope`, deepest kept out. */
+function pickedFrom(rows: readonly OutlineSection[], scope: readonly string[]): string[] {
+  const chosen = new Set(scope);
+  const keys: string[] = [];
+  const walk = (list: readonly OutlineSection[]) => {
+    for (const row of list) {
+      if (row.nodeIds.length > 0 && row.nodeIds.every((id) => chosen.has(id))) keys.push(row.key);
+      else walk(row.children);
+    }
+  };
+  walk(rows);
+  return keys;
 }
 
 /**
- * « Choisir une partie » — the book's sections as a compact tree, with the number
- * of names on each and a "tout cocher" on any branch. It shows labels and counts
- * only: no name, no clue, nothing a player couldn't read in the table of contents.
+ * What « Nouvelle partie » writes under the line: the names of the chosen parts,
+ * as the sommaire calls them (« Ancien Testament », « Hommes »…). Empty for the
+ * whole book.
+ */
+export function scopeTitles(sections: readonly BookSection[], scope: readonly string[]): string[] {
+  if (scope.length === 0) return [];
+  const rows = pickerRows(sections);
+  const keys = new Set(pickedFrom(rows, scope));
+  const labels: string[] = [];
+  const walk = (list: readonly OutlineSection[]) => {
+    for (const row of list) {
+      if (keys.has(row.key)) labels.push(row.label);
+      else walk(row.children);
+    }
+  };
+  walk(rows);
+  // A scope the outline cannot name (an older server, or a part that has since
+  // moved) is still shown, with the book's own labels.
+  return labels.length > 0 ? labels : sections.filter((s) => scope.includes(s.node_id)).map((s) => s.label);
+}
+
+function descendants(row: OutlineSection): string[] {
+  return row.children.flatMap((child) => [child.key, ...descendants(child)]);
+}
+
+/**
+ * « Quelle partie du livre ? » — the table of contents, with the number of names
+ * on each part and « Tout le livre » as the first choice. It shows labels and
+ * counts only: no name, no clue, nothing a player couldn't read in the sommaire.
  */
 export function ScopePicker({ visible, sections, value, onClose, onConfirm, loading = false }: ScopePickerProps) {
   const theme = useTheme();
-  const tree = useMemo(() => buildTree(sections), [sections]);
-  const [picked, setPicked] = useState<string[]>(value);
-  const [open, setOpen] = useState<string[]>([]);
+  const rows = useMemo(() => pickerRows(sections), [sections]);
+  const [picked, setPicked] = useState<string[]>(() => pickedFrom(rows, value));
+  // The first two levels are the book's own map (ANCIEN/NOUVEAU, HOMME/FEMME):
+  // they are open from the start, so the shape of the book is the first thing seen.
+  const [open, setOpen] = useState<string[]>(() => rows.map((row) => row.key));
 
   // Re-open on the current choice, not on whatever was picked last time.
   const [lastValue, setLastValue] = useState(value);
   if (lastValue !== value) {
     setLastValue(value);
-    setPicked(value);
+    setPicked(pickedFrom(rows, value));
   }
 
   const chosen = new Set(picked);
-  const total = useMemo(
-    () => tree.reduce((sum, node) => sum + node.characters, 0),
-    [tree],
-  );
+  const total = useMemo(() => rows.reduce((sum, row) => sum + row.characters, 0), [rows]);
   const names = useMemo(() => {
-    // A parent and its child can both be ticked; count each name once.
-    const counted = new Set<string>();
+    // A part and a part inside it can both be ticked; count each name once.
     let sum = 0;
-    const walk = (node: TreeNode, insideChosen: boolean) => {
-      const inside = insideChosen || chosen.has(node.node_id);
-      if (inside && !insideChosen && !counted.has(node.node_id)) {
-        counted.add(node.node_id);
-        sum += node.characters;
+    const walk = (list: readonly OutlineSection[], insideChosen: boolean) => {
+      for (const row of list) {
+        const inside = insideChosen || chosen.has(row.key);
+        if (inside && !insideChosen) sum += row.characters;
+        walk(row.children, inside);
       }
-      for (const child of node.children) walk(child, inside);
     };
-    for (const node of tree) walk(node, false);
+    walk(rows, false);
     return sum;
-  }, [picked, tree]);
+  }, [picked, rows]);
 
-  const toggle = (node: TreeNode) => {
+  const toggle = (row: OutlineSection) => {
     lightFeedback();
     setPicked((current) => {
       const set = new Set(current);
-      if (set.has(node.node_id)) set.delete(node.node_id);
+      if (set.has(row.key)) set.delete(row.key);
       else {
-        set.add(node.node_id);
-        // A branch covers its children, so ticking it clears them.
-        for (const id of subtreeIds(node)) if (id !== node.node_id) set.delete(id);
+        set.add(row.key);
+        // A part covers everything inside it, so ticking it clears those.
+        for (const key of descendants(row)) set.delete(key);
       }
       return [...set];
     });
   };
 
-  const tickAll = (node: TreeNode) => {
-    lightFeedback();
-    setPicked((current) => {
-      const set = new Set(current);
-      for (const id of subtreeIds(node)) set.delete(id);
-      for (const child of node.children) set.add(child.node_id);
-      return [...set];
-    });
+  const scopeOf = (keys: readonly string[]): string[] => {
+    const wanted = new Set(keys);
+    const ids: string[] = [];
+    const walk = (list: readonly OutlineSection[]) => {
+      for (const row of list) {
+        if (wanted.has(row.key)) ids.push(...row.nodeIds);
+        else walk(row.children);
+      }
+    };
+    walk(rows);
+    return [...new Set(ids)];
   };
 
-  const row = (node: TreeNode, insideChosen: boolean): React.ReactNode => {
-    const isChosen = chosen.has(node.node_id);
+  const line = (row: OutlineSection, depth: number, insideChosen: boolean): React.ReactNode => {
+    const isChosen = chosen.has(row.key);
     const covered = insideChosen || isChosen;
-    const expanded = open.includes(node.node_id);
-    const hasChildren = node.children.length > 0;
+    const expanded = open.includes(row.key);
+    const hasChildren = row.children.length > 0;
     return (
-      <View key={node.node_id}>
+      <View key={row.key}>
         <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
             gap: theme.space.xs,
-            paddingLeft: Math.min(node.depth - 1, 4) * theme.space.md,
+            paddingLeft: Math.min(depth, 4) * theme.space.md,
           }}
         >
           <Pressable
-            testID={`scope-row-${node.node_id}`}
+            testID={`scope-row-${row.key}`}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: covered, disabled: insideChosen }}
-            accessibilityLabel={node.label}
-            accessibilityHint={fr.setup.scopeNames(node.characters)}
+            accessibilityLabel={row.label}
+            accessibilityHint={fr.setup.scopeNames(row.characters)}
             disabled={insideChosen}
-            onPress={() => toggle(node)}
+            onPress={() => toggle(row)}
             style={({ pressed }) => ({
               flex: 1,
               flexDirection: 'row',
@@ -147,43 +183,23 @@ export function ScopePicker({ visible, sections, value, onClose, onConfirm, load
               opacity: insideChosen ? 0.6 : 1,
             })}
           >
-            <View
-              testID={`scope-mark-${node.node_id}`}
-              style={{
-                width: 22,
-                height: 22,
-                borderRadius: 6,
-                borderWidth: 1,
-                borderColor: covered ? theme.colors.brass : theme.colors.inkFaint,
-                backgroundColor: covered ? theme.colors.brass : 'transparent',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {covered ? (
-                <AppText variant="micro" weight="bold" style={{ color: theme.colors.brassInk, lineHeight: 16 }}>
-                  ✓
-                </AppText>
-              ) : null}
-            </View>
-            <AppText variant="body" weight={node.depth === 1 ? 'semibold' : 'regular'} style={{ flex: 1 }}>
-              {node.label}
+            <Box checked={covered} testID={`scope-mark-${row.key}`} />
+            <AppText variant="body" weight={depth === 0 ? 'semibold' : 'regular'} style={{ flex: 1 }}>
+              {row.label}
             </AppText>
             <AppText variant="small" tone="soft">
-              {node.characters}
+              {row.characters}
             </AppText>
           </Pressable>
 
           {hasChildren ? (
             <Pressable
-              testID={`scope-open-${node.node_id}`}
+              testID={`scope-open-${row.key}`}
               accessibilityRole="button"
-              accessibilityLabel={expanded ? fr.setup.scopeCollapse(node.label) : fr.setup.scopeExpand(node.label)}
+              accessibilityLabel={expanded ? fr.setup.scopeCollapse(row.label) : fr.setup.scopeExpand(row.label)}
               onPress={() =>
                 setOpen((current) =>
-                  current.includes(node.node_id)
-                    ? current.filter((id) => id !== node.node_id)
-                    : [...current, node.node_id],
+                  current.includes(row.key) ? current.filter((key) => key !== row.key) : [...current, row.key],
                 )
               }
               style={{ minWidth: 40, minHeight: theme.touch.secondary, alignItems: 'center', justifyContent: 'center' }}
@@ -196,18 +212,7 @@ export function ScopePicker({ visible, sections, value, onClose, onConfirm, load
         </View>
 
         {hasChildren && expanded ? (
-          <View>
-            {!covered ? (
-              <View style={{ paddingLeft: Math.min(node.depth, 4) * theme.space.md + theme.space.sm }}>
-                <LinkButton
-                  testID={`scope-all-${node.node_id}`}
-                  label={fr.setup.scopeTickAll}
-                  onPress={() => tickAll(node)}
-                />
-              </View>
-            ) : null}
-            {node.children.map((child) => row(child, covered))}
-          </View>
+          <View>{row.children.map((child) => line(child, depth + 1, covered))}</View>
         ) : null}
       </View>
     );
@@ -225,13 +230,51 @@ export function ScopePicker({ visible, sections, value, onClose, onConfirm, load
         <AppText variant="body" tone="soft" testID="scope-loading">
           {fr.setup.scopeLoading}
         </AppText>
-      ) : tree.length === 0 ? (
+      ) : rows.length === 0 ? (
         <AppText variant="body" tone="soft" testID="scope-empty">
           {fr.setup.scopeEmpty}
         </AppText>
       ) : (
         <>
-          <ScrollView style={{ maxHeight: 380 }}>{tree.map((node) => row(node, false))}</ScrollView>
+          <ScrollView style={{ maxHeight: 380 }}>
+            {/* The first choice, and the one a player already has: the whole book. */}
+            <Pressable
+              testID="scope-whole-book"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: picked.length === 0 }}
+              accessibilityLabel={fr.setup.scopeWhole}
+              accessibilityHint={fr.setup.scopeWholeHint}
+              onPress={() => {
+                lightFeedback();
+                setPicked([]);
+              }}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: theme.space.sm,
+                minHeight: theme.touch.secondary,
+                paddingHorizontal: theme.space.sm,
+                paddingVertical: theme.space.xs,
+                marginBottom: theme.space.xs,
+                borderRadius: theme.radius.field,
+                borderWidth: 1,
+                borderColor: picked.length === 0 ? theme.colors.brass : theme.colors.line,
+                backgroundColor: pressed ? theme.colors.surfaceRaised : theme.colors.surface,
+              })}
+            >
+              <Box checked={picked.length === 0} testID="scope-mark-whole-book" />
+              <BookOpen size={18} color={theme.colors.inkSoft} />
+              <AppText variant="body" weight="semibold" style={{ flex: 1 }}>
+                {fr.setup.scopeWhole}
+              </AppText>
+              <AppText variant="small" tone="soft">
+                {total}
+              </AppText>
+            </Pressable>
+
+            {rows.map((row) => line(row, 0, false))}
+          </ScrollView>
+
           <View style={{ gap: theme.space.xs, paddingTop: theme.space.sm }}>
             <AppText variant="small" tone="soft" testID="scope-count">
               {picked.length === 0 ? fr.setup.scopeNoneChosen : fr.setup.scopeChosen(picked.length, names, total)}
@@ -239,14 +282,38 @@ export function ScopePicker({ visible, sections, value, onClose, onConfirm, load
             <PrimaryButton
               testID="scope-confirm"
               icon={Check}
-              label={fr.setup.scopeConfirm}
-              disabled={picked.length === 0 || names === 0}
-              onPress={() => onConfirm(picked)}
+              label={picked.length === 0 ? fr.setup.scopeConfirmWhole : fr.setup.scopeConfirm}
+              onPress={() => onConfirm(scopeOf(picked))}
             />
-            <LinkButton testID="scope-whole-book" label={fr.setup.scopeWholeBook} onPress={() => onConfirm([])} />
           </View>
         </>
       )}
     </Sheet>
+  );
+}
+
+/** The tick box of a row. */
+function Box({ checked, testID }: { checked: boolean; testID: string }) {
+  const theme = useTheme();
+  return (
+    <View
+      testID={testID}
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: checked ? theme.colors.brass : theme.colors.inkFaint,
+        backgroundColor: checked ? theme.colors.brass : 'transparent',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {checked ? (
+        <AppText variant="micro" weight="bold" style={{ color: theme.colors.brassInk, lineHeight: 16 }}>
+          ✓
+        </AppText>
+      ) : null}
+    </View>
   );
 }

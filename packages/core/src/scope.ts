@@ -7,7 +7,7 @@
 // The SQL mirror is dsa_list_sections / dsa_scope_characters / dsa_normalize_settings.
 
 import type { GraphIndex } from './graph-index';
-import type { GraphEdge, GraphNode } from './types';
+import type { GraphEdge, GraphNode, NodeType } from './types';
 
 /** A node of the picker's tree: every playable non-CHARACTER node of the graph. */
 export interface Section {
@@ -19,23 +19,40 @@ export interface Section {
   depth: number;
   /** How many playable names are underneath it. */
   characters: number;
+  /** QUESTION, CATEGORY, GROUP… — the picker reads a question differently. */
+  nodeType: NodeType;
+  /**
+   * The answer that leads here from the section above ("OUI", "NONONONON"…),
+   * null at the root. It is what tells « l'Ancien » from « le Nouveau »: a
+   * section is a *branch* of the book, not just a node.
+   */
+  answerLabel: string | null;
+}
+
+interface Step {
+  id: string;
+  parentId: string | null;
+  depth: number;
+  /** The answer on the edge that reached this node; null for START. */
+  answerLabel: string | null;
 }
 
 /** Walks the graph from START, deepest-last, in book order. */
-function walk(ix: GraphIndex, visit: (node: GraphNode, parentId: string | null, depth: number) => void): void {
+function walk(ix: GraphIndex, visit: (node: GraphNode, step: Step) => void): void {
   const start = ix.start();
   const seen = new Set<string>();
-  const stack: { id: string; parentId: string | null; depth: number }[] = [{ id: start.id, parentId: null, depth: 0 }];
+  const stack: Step[] = [{ id: start.id, parentId: null, depth: 0, answerLabel: null }];
   while (stack.length > 0) {
-    const { id, parentId, depth } = stack.pop() as { id: string; parentId: string | null; depth: number };
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const node = ix.node(id);
+    const step = stack.pop() as Step;
+    if (seen.has(step.id)) continue;
+    seen.add(step.id);
+    const node = ix.node(step.id);
     if (!node) continue;
-    visit(node, parentId, depth);
-    const children = ix.outgoing(id);
+    visit(node, step);
+    const children = ix.outgoing(step.id);
     for (let i = children.length - 1; i >= 0; i--) {
-      stack.push({ id: (children[i] as GraphEdge).toNodeId, parentId: id, depth: depth + 1 });
+      const edge = children[i] as GraphEdge;
+      stack.push({ id: edge.toNodeId, parentId: step.id, depth: step.depth + 1, answerLabel: edge.answerLabel });
     }
   }
 }
@@ -49,10 +66,12 @@ function walk(ix: GraphIndex, visit: (node: GraphNode, parentId: string | null, 
 export function listSections(ix: GraphIndex): Section[] {
   const parentOf = new Map<string, string | null>();
   const depthOf = new Map<string, number>();
+  const answerOf = new Map<string, string | null>();
   const order: GraphNode[] = [];
-  walk(ix, (node, parentId, depth) => {
-    parentOf.set(node.id, parentId);
-    depthOf.set(node.id, depth);
+  walk(ix, (node, step) => {
+    parentOf.set(node.id, step.parentId);
+    depthOf.set(node.id, step.depth);
+    answerOf.set(node.id, step.answerLabel);
     order.push(node);
   });
 
@@ -77,6 +96,8 @@ export function listSections(ix: GraphIndex): Section[] {
       parentId: parentOf.get(n.id) ?? null,
       depth: depthOf.get(n.id) ?? 0,
       characters: counts.get(n.id) ?? 0,
+      nodeType: n.nodeType,
+      answerLabel: answerOf.get(n.id) ?? null,
     }));
 }
 

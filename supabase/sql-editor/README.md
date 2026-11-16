@@ -54,6 +54,15 @@ The new rule applies to games **already in progress**: the next "QUESTION" in th
 | 1 | `08_room_call.sql` | Same content as `migrations/0011_room_call.sql` | Yes |
 | 2 | `90_tests.sql` | Checks everything still passes | Yes |
 
+`09_book_outline.sql` brings a project up to date with the book-outline update: `dsa_list_sections` now also returns each section's **node type** and the **answer that leads into it**, which is what lets the picker show the book's outline (ANCIEN / NOUVEAU, then HOMME / FEMME, then the lists the book prints) instead of the graph's chain of questions. Nothing about the game changes. Run it after `08` (it stops with a clear message if `07` is missing), then run `90_tests.sql` again and expect `ALL DSA TESTS PASSED`. It is safe to run more than once, and a new project doesn't need it: the regenerated `00` contains it. The new `90` refuses to run on a project that skipped it.
+
+| Order | File | What it does | Run again? |
+|---|---|---|---|
+| 1 | `09_book_outline.sql` | Same content as `migrations/0012_book_outline.sql` | Yes |
+| 2 | `90_tests.sql` | Checks everything, including the new outline checks in block 18 | Yes |
+
+Until it is run, the picker still works: the rows arrive without those two columns and it shows the plain tree, as before.
+
 The call itself also needs the `livekit-token` Edge Function and three LiveKit secrets: see [`VOICE.md`](../../VOICE.md), **"Appel dans une salle"**. Until they are set up, Voix in a room is simply not offered and **Boutons** works as before. The limits are only checked when a call **starts**; a game already being played is never cut before its own call time.
 
 > **Paste the upgrade files in increasing order, and never an older one after a newer one.** Each file re-creates the functions as they were at its own version, so running `06` again *after* `07` silently puts the older `dsa_new_session` and `dsa_normalize_settings` back, and the scope stops being honoured. If that happens, just run the newest file again (or `00_all_migrations.sql`) and everything is repaired. `90_tests.sql` catches it either way.

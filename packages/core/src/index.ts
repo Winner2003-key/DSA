@@ -24,6 +24,8 @@ export { hasHomonyms } from './homonyms';
 export { solutionPath } from './solution';
 export { listSections, sectionIds, scopeCharacters, checkScope, normalizeScope, scopeLabels } from './scope';
 export type { Section, ScopeProblem } from './scope';
+export { bookOutline, outlineIds, findOutline, BOOK_SPLITS } from './outline';
+export type { OutlineSection, OutlineSplit, OutlineOptions } from './outline';
 export {
   NO_CLOCK,
   DEFAULT_CLOCK_SETTINGS,

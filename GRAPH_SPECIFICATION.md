@@ -141,8 +141,18 @@ Only nodes and edges with `review_status = 'APPROVED'` are playable. Secret cand
 - A scope restricts **only which name is drawn**. The traversal is untouched: the questions still start at the first one, so the pair walks the whole book down to that part and keeps learning the path. The end screen's book path (§9) shows it.
 - The secret is drawn among the playable CHARACTER nodes **underneath** the chosen sections (their union, deduplicated). `dsa_redraw_secret` stays inside it, and `dsa_rematch` keeps it.
 - Validation (`dsa_normalize_settings`): every id must be a section of that graph, and the union must hold at least one playable name — otherwise `DSA_INVALID_SETTINGS`, or `DSA_NO_PLAYABLE_SECRET` when the union is empty.
-- `dsa_list_sections(p_graph_slug)` feeds the picker: `node_id`, `label`, `parent_id`, `depth` and `characters` (names underneath), in book order. It returns **no name, no clue and no leaf** — no more than the book's table of contents. Granted to `authenticated`.
+- `dsa_list_sections(p_graph_slug)` feeds the picker: `node_id`, `label`, `parent_id`, `depth`, `characters` (names underneath) and, since 0012, `node_type` and `answer_label` (the answer that leads into the section), in book order. It returns **no name, no clue and no leaf** — no more than the book's table of contents. Granted to `authenticated`.
 - The single definition lives in `packages/core/src/scope.ts` (`listSections`, `scopeCharacters`, `checkScope`), mirrored in SQL by `dsa_sections` / `dsa_scope_characters`.
+
+#### The outline the picker shows
+
+The graph is a chain of questions: `ANCIEN` is a *question* whose two answers are the two testaments, and a `NON` carries on down the same list. Shown as it is, the picker says « ANCIEN » with two children both called « HOMME ». `bookOutline` (`packages/core/src/outline.ts`) folds the same rows into the outline the book prints, from `node_type` and `answer_label` only — no second source of truth:
+
+1. a **split** question (`ANCIEN`, `HOMME`) is not a part of the book; its two sides are, and they are named (« Ancien Testament » / « Nouveau Testament », « Hommes » / « Femmes », in `fr.setup.scopeSplits`);
+2. a branch entered with a **NON** continues the list its question belongs to, so it is shown as a *sibling* of that question, and the question keeps only the names of the branches it still holds;
+3. a question with a single branch left **is** that branch, shown as one row.
+
+A row ticked in the picker puts its `nodeIds` in the scope — one section, or the few branches a side of a split question is spread over. The outline is only a way of reading the sections: nothing about the scope, the draw or the questions changes.
 
 ### Character card description
 - `bible_characters.description` is generated at import as `"<clue> · <nearest CATEGORY label>"`, for example `"Le révolté · NÉS À HÉBRON"`, and admins can edit it.

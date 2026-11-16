@@ -17,13 +17,16 @@ import {
 import { fr } from '@/i18n/fr';
 import { acceptRematch, declineRematch, parseRematchOffer, proposeRematch, type RematchOffer } from '@/rooms/rematch';
 import { useRoom } from '@/rooms/use-room';
-import { getGameService } from '@/services';
+import { GRAPH_SLUG, getGameService } from '@/services';
 import { toDsaError, type DsaError } from '@/services/errors';
 import { cardDescription, isCallGame, type GameState, type RevealedPath, type SolutionPath } from '@/services/types';
+import { useScopeLabels } from '@/state/use-scope-labels';
 import { useSpeech } from '@/speech/use-speech';
 import { useTheme } from '@/theme';
-import { House, RotateCcw } from '@/components';
+import { House, RotateCcw, Settings } from '@/components';
 import { RoomNext } from '@/views/room-next';
+
+const EMPTY: string[] = [];
 
 export default function ResultatScreen() {
   const theme = useTheme();
@@ -125,6 +128,43 @@ export default function ResultatScreen() {
     }
   };
 
+  /**
+   * « Nom suivant », outside a room: the players keep going with the settings
+   * they already chose — same mode, same Voix, same chronomètre, same partie du
+   * livre — and only a new name. Nothing sends them back through « Nouvelle
+   * partie » unless they want to change something.
+   */
+  const playAgain = async () => {
+    if (!state || starting) return;
+    setStarting(true);
+    setError(null);
+    try {
+      const { sessionId: next } = await getGameService().createSession({
+        graphSlug: GRAPH_SLUG,
+        mode: state.mode,
+        settings: {
+          input_mode: state.settings.input_mode,
+          timed: state.settings.timed,
+          scope: state.settings.scope,
+        },
+      });
+      router.replace(`/partie/${next}`);
+    } catch (caught) {
+      setError(toDsaError(caught));
+      setStarting(false);
+    }
+  };
+
+  /** What the next name will be played with, in the words of the setup screen. */
+  const scopeLabels = useScopeLabels(state?.settings.scope ?? EMPTY, state?.scope_labels ?? EMPTY);
+  const settingsLine = state
+    ? fr.result.settingsLine([
+        state.settings.input_mode === 'VOICE' ? fr.setup.voice : fr.setup.buttons,
+        state.settings.timed ? fr.setup.timer : fr.setup.timerNone,
+        scopeLabels.length === 0 ? fr.setup.scopeWhole : scopeLabels.join(', '),
+      ])
+    : '';
+
   /** Leaving while the other phone waits for us: tell it, so it is not left hanging. */
   const goHome = () => {
     if (offer) void declineRematch(room.handle, offer, me?.display_name ?? null);
@@ -148,23 +188,41 @@ export default function ResultatScreen() {
         isRoom && me ? (
           <RoomNext myRole={me.role} offer={offer} starting={starting} onNext={(swap) => void nextName(swap)} onHome={goHome} />
         ) : (
-          <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
-            <SecondaryButton
-              testID="go-home"
-              icon={House}
-              label={fr.result.home}
-              onPress={() => router.replace('/')}
-              style={{ flex: 1, width: undefined }}
-            />
+          <View style={{ gap: theme.space.xs }}>
+            {starting ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space.sm }}>
+                <ActivityIndicator color={theme.colors.brass} />
+                <AppText variant="small" tone="soft">
+                  {fr.rematch.starting}
+                </AppText>
+              </View>
+            ) : null}
             <PrimaryButton
-              testID="replay"
+              testID="next-name"
               icon={RotateCcw}
-              label={fr.result.replay}
+              label={fr.result.nextName}
+              hint={settingsLine || fr.result.nextNameHint}
               disabled={!state || starting}
-              // A new solo game always goes through "Préparer la partie", with this game's mode ready.
-              onPress={() => router.replace(state ? `/jouer?mode=${state.mode}` : '/jouer')}
-              style={{ flex: 1.4, width: undefined }}
+              onPress={() => void playAgain()}
             />
+            <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+              <SecondaryButton
+                testID="go-home"
+                icon={House}
+                label={fr.result.home}
+                onPress={() => router.replace('/')}
+                style={{ flex: 1, width: undefined }}
+              />
+              <SecondaryButton
+                testID="replay"
+                icon={Settings}
+                label={fr.result.changeSettings}
+                disabled={starting}
+                // Only a change of settings goes back through « Nouvelle partie ».
+                onPress={() => router.replace(state ? `/jouer?mode=${state.mode}` : '/jouer')}
+                style={{ flex: 1.4, width: undefined }}
+              />
+            </View>
           </View>
         )
       }
