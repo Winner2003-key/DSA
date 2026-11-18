@@ -49,6 +49,10 @@ begin
      or to_regprocedure('public.dsa_normalize_settings(jsonb,uuid)') is null then
     raise exception 'DSA TEST SETUP: this project predates the rules-and-practice update; run 07_rules_scope.sql (or the new 00_all_migrations.sql) first';
   end if;
+  if to_regprocedure('public.dsa_call_allowance()') is null
+     or to_regprocedure('public.dsa_declare_result(uuid,boolean)') is null then
+    raise exception 'DSA TEST SETUP: this project predates the live-call update; run 08_room_call.sql (or the new 00_all_migrations.sql) first';
+  end if;
   if not exists (
        select 1 from pg_proc p
        where p.oid = to_regprocedure('public.dsa_list_sections(text)')
@@ -165,12 +169,17 @@ language sql stable security definer set search_path = public, pg_temp as $$
   from public.dsa_app_settings() a;
 $$;
 
--- The settings an untimed game is stored with, for the defaults of app_settings.
+-- The settings a game is stored with, for the current app_settings. Since 0011 a
+-- VOICE game also carries the longest a call may last: dsa_normalize_settings
+-- adds it from input_mode alone, in every mode (only a room ever reads it).
 create function dsa_test.settings(p_input_mode text default 'BUTTONS', p_timed boolean default false) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object('input_mode', p_input_mode, 'timed', p_timed, 'max_redraws', a.max_redraws)
        || case when p_timed
                then jsonb_build_object('think_seconds', a.think_seconds, 'play_seconds', a.play_seconds)
+               else '{}'::jsonb end
+       || case when p_input_mode = 'VOICE' and (to_jsonb(a)->'call_max_seconds') is not null
+               then jsonb_build_object('call_max_seconds', to_jsonb(a)->'call_max_seconds')
                else '{}'::jsonb end
   from public.dsa_app_settings() a;
 $$;
