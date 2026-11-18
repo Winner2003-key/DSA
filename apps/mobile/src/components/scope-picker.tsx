@@ -1,21 +1,22 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
 import { bookOutline } from '@dsa/core';
 import type { OutlineSection, Section } from '@dsa/core';
 
 import { AppText } from './app-text';
-import { PrimaryButton } from './buttons';
-import { Sheet } from './sheet';
+import { LinkButton, PrimaryButton } from './buttons';
+import { Screen } from './screen';
+import { TopBar } from './chrome';
 import { fr } from '@/i18n/fr';
 import { lightFeedback } from '@/lib/haptics';
 import type { BookSection } from '@/services/types';
 import { useTheme } from '@/theme';
-import { BookOpen, Check } from './icon';
+import { BookOpen, Check, ChevronRight } from './icon';
 
 export interface ScopePickerProps {
   visible: boolean;
   sections: BookSection[];
-  /** The section ids ticked when the sheet opens. */
+  /** The section ids chosen when the page opens. */
   value: string[];
   onClose: () => void;
   onConfirm: (scope: string[]) => void;
@@ -30,13 +31,15 @@ function asSections(rows: readonly BookSection[]): Section[] {
     parentId: row.parent_id,
     depth: row.depth,
     characters: row.characters,
-    nodeType: row.node_type ?? 'CATEGORY',
+    // A server that predates 0012 sends neither: the root is still the root,
+    // and the rest is shown as it comes (no outline, but never the START node).
+    nodeType: row.node_type ?? (row.parent_id === null ? 'START' : 'CATEGORY'),
     answerLabel: row.answer_label ?? null,
   }));
 }
 
 /**
- * The book's outline, as the picker shows it: ANCIEN and NOUVEAU, each with its
+ * The book's outline, as the picker walks it: ANCIEN and NOUVEAU, each with its
  * HOMME and FEMME, and under them the lists the book prints (PENTATEUQUE, LES 3
  * PREMIERS, LIVRE DE SAMUEL…). The rule is in `@dsa/core`; the French wording of
  * the four branches is here, with the rest of the interface.
@@ -81,239 +84,158 @@ export function scopeTitles(sections: readonly BookSection[], scope: readonly st
   return labels.length > 0 ? labels : sections.filter((s) => scope.includes(s.node_id)).map((s) => s.label);
 }
 
-function descendants(row: OutlineSection): string[] {
-  return row.children.flatMap((child) => [child.key, ...descendants(child)]);
-}
-
 /**
- * « Quelle partie du livre ? » — the table of contents, with the number of names
- * on each part and « Tout le livre » as the first choice. It shows labels and
- * counts only: no name, no clue, nothing a player couldn't read in the sommaire.
+ * « Choisir la partie du livre » — a page per level of the book, walked the way
+ * the book is read: the two testaments, then the hommes and the femmes, then the
+ * lists (PENTATEUQUE, LES 3 PREMIERS, LIVRE DE SAMUEL…), then what is inside
+ * them. Touching a part opens it; the button at the bottom takes the part that
+ * is open, and « Tout le livre » is always one touch away.
+ *
+ * It shows labels and counts only: no name, no clue, nothing a player couldn't
+ * read in the sommaire.
  */
 export function ScopePicker({ visible, sections, value, onClose, onConfirm, loading = false }: ScopePickerProps) {
   const theme = useTheme();
   const rows = useMemo(() => pickerRows(sections), [sections]);
-  const [picked, setPicked] = useState<string[]>(() => pickedFrom(rows, value));
-  // The first two levels are the book's own map (ANCIEN/NOUVEAU, HOMME/FEMME):
-  // they are open from the start, so the shape of the book is the first thing seen.
-  const [open, setOpen] = useState<string[]>(() => rows.map((row) => row.key));
+  /** Where we are in the book: the keys of the parts opened, deepest last. */
+  const [trail, setTrail] = useState<string[]>([]);
 
-  // Re-open on the current choice, not on whatever was picked last time.
-  const [lastValue, setLastValue] = useState(value);
-  if (lastValue !== value) {
-    setLastValue(value);
-    setPicked(pickedFrom(rows, value));
+  // Every opening starts at the top of the book, on the choice in force.
+  const [wasVisible, setWasVisible] = useState(visible);
+  if (wasVisible !== visible) {
+    setWasVisible(visible);
+    if (visible && trail.length > 0) setTrail([]);
   }
 
-  const chosen = new Set(picked);
-  const total = useMemo(() => rows.reduce((sum, row) => sum + row.characters, 0), [rows]);
-  const names = useMemo(() => {
-    // A part and a part inside it can both be ticked; count each name once.
-    let sum = 0;
-    const walk = (list: readonly OutlineSection[], insideChosen: boolean) => {
-      for (const row of list) {
-        const inside = insideChosen || chosen.has(row.key);
-        if (inside && !insideChosen) sum += row.characters;
-        walk(row.children, inside);
-      }
-    };
-    walk(rows, false);
-    return sum;
-  }, [picked, rows]);
+  const path: OutlineSection[] = [];
+  let level: readonly OutlineSection[] = rows;
+  for (const key of trail) {
+    const found = level.find((row) => row.key === key);
+    if (!found) break;
+    path.push(found);
+    level = found.children;
+  }
+  const current = path.length > 0 ? (path[path.length - 1] as OutlineSection) : null;
+  const here = current ? current.children : rows;
+  const chosen = useMemo(() => new Set(pickedFrom(rows, value)), [rows, value]);
 
-  const toggle = (row: OutlineSection) => {
+  const open = (row: OutlineSection) => {
     lightFeedback();
-    setPicked((current) => {
-      const set = new Set(current);
-      if (set.has(row.key)) set.delete(row.key);
-      else {
-        set.add(row.key);
-        // A part covers everything inside it, so ticking it clears those.
-        for (const key of descendants(row)) set.delete(key);
-      }
-      return [...set];
-    });
+    setTrail((currentTrail) => [...currentTrail, row.key]);
+  };
+  const back = () => {
+    if (trail.length === 0) {
+      onClose();
+      return;
+    }
+    lightFeedback();
+    setTrail((currentTrail) => currentTrail.slice(0, -1));
   };
 
-  const scopeOf = (keys: readonly string[]): string[] => {
-    const wanted = new Set(keys);
-    const ids: string[] = [];
-    const walk = (list: readonly OutlineSection[]) => {
-      for (const row of list) {
-        if (wanted.has(row.key)) ids.push(...row.nodeIds);
-        else walk(row.children);
-      }
-    };
-    walk(rows);
-    return [...new Set(ids)];
-  };
-
-  const line = (row: OutlineSection, depth: number, insideChosen: boolean): React.ReactNode => {
-    const isChosen = chosen.has(row.key);
-    const covered = insideChosen || isChosen;
-    const expanded = open.includes(row.key);
+  const part = (row: OutlineSection) => {
     const hasChildren = row.children.length > 0;
+    const isChosen = chosen.has(row.key);
     return (
-      <View key={row.key}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.space.xs,
-            paddingLeft: Math.min(depth, 4) * theme.space.md,
-          }}
-        >
-          <Pressable
-            testID={`scope-row-${row.key}`}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: covered, disabled: insideChosen }}
-            accessibilityLabel={row.label}
-            accessibilityHint={fr.setup.scopeNames(row.characters)}
-            disabled={insideChosen}
-            onPress={() => toggle(row)}
-            style={({ pressed }) => ({
-              flex: 1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: theme.space.sm,
-              minHeight: theme.touch.secondary,
-              paddingHorizontal: theme.space.sm,
-              borderRadius: theme.radius.field,
-              backgroundColor: pressed ? theme.colors.surfaceRaised : 'transparent',
-              opacity: insideChosen ? 0.6 : 1,
-            })}
-          >
-            <Box checked={covered} testID={`scope-mark-${row.key}`} />
-            <AppText variant="body" weight={depth === 0 ? 'semibold' : 'regular'} style={{ flex: 1 }}>
-              {row.label}
-            </AppText>
-            <AppText variant="small" tone="soft">
-              {row.characters}
-            </AppText>
-          </Pressable>
-
-          {hasChildren ? (
-            <Pressable
-              testID={`scope-open-${row.key}`}
-              accessibilityRole="button"
-              accessibilityLabel={expanded ? fr.setup.scopeCollapse(row.label) : fr.setup.scopeExpand(row.label)}
-              onPress={() =>
-                setOpen((current) =>
-                  current.includes(row.key) ? current.filter((key) => key !== row.key) : [...current, row.key],
-                )
-              }
-              style={{ minWidth: 40, minHeight: theme.touch.secondary, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <AppText variant="body" tone="soft">
-                {expanded ? '▾' : '▸'}
-              </AppText>
-            </Pressable>
-          ) : null}
+      <Pressable
+        key={row.key}
+        testID={`scope-row-${row.key}`}
+        accessibilityRole="button"
+        accessibilityLabel={hasChildren ? fr.setup.scopeExpand(row.label) : row.label}
+        accessibilityHint={
+          hasChildren ? fr.setup.scopeNamesAndParts(row.characters, row.children.length) : fr.setup.scopeNames(row.characters)
+        }
+        onPress={() => (hasChildren ? open(row) : onConfirm(row.nodeIds))}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space.sm,
+          minHeight: theme.touch.secondary,
+          paddingHorizontal: theme.space.md,
+          paddingVertical: theme.space.sm,
+          borderRadius: theme.radius.slab,
+          borderWidth: 1,
+          borderColor: isChosen ? theme.colors.brass : theme.colors.line,
+          backgroundColor: pressed ? theme.colors.surface : theme.colors.surfaceRaised,
+        })}
+      >
+        <View style={{ flex: 1, gap: 2 }}>
+          <AppText variant="body" weight="semibold">
+            {row.label}
+          </AppText>
+          <AppText variant="micro" tone="soft">
+            {hasChildren
+              ? fr.setup.scopeNamesAndParts(row.characters, row.children.length)
+              : fr.setup.scopeNames(row.characters)}
+          </AppText>
         </View>
-
-        {hasChildren && expanded ? (
-          <View>{row.children.map((child) => line(child, depth + 1, covered))}</View>
-        ) : null}
-      </View>
+        {isChosen ? <Check size={18} color={theme.colors.brass} /> : null}
+        {hasChildren ? <ChevronRight size={20} color={theme.colors.inkFaint} /> : null}
+      </Pressable>
     );
   };
 
   return (
-    <Sheet
-      visible={visible}
-      title={fr.setup.scopeTitle}
-      hint={fr.setup.scopeHint}
-      onClose={onClose}
-      testID="scope-picker"
-    >
-      {loading ? (
-        <AppText variant="body" tone="soft" testID="scope-loading">
-          {fr.setup.scopeLoading}
-        </AppText>
-      ) : rows.length === 0 ? (
-        <AppText variant="body" tone="soft" testID="scope-empty">
-          {fr.setup.scopeEmpty}
-        </AppText>
-      ) : (
-        <>
-          <ScrollView style={{ maxHeight: 380 }}>
-            {/* The first choice, and the one a player already has: the whole book. */}
-            <Pressable
-              testID="scope-whole-book"
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: picked.length === 0 }}
-              accessibilityLabel={fr.setup.scopeWhole}
-              accessibilityHint={fr.setup.scopeWholeHint}
-              onPress={() => {
-                lightFeedback();
-                setPicked([]);
-              }}
-              style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: theme.space.sm,
-                minHeight: theme.touch.secondary,
-                paddingHorizontal: theme.space.sm,
-                paddingVertical: theme.space.xs,
-                marginBottom: theme.space.xs,
-                borderRadius: theme.radius.field,
-                borderWidth: 1,
-                borderColor: picked.length === 0 ? theme.colors.brass : theme.colors.line,
-                backgroundColor: pressed ? theme.colors.surfaceRaised : theme.colors.surface,
-              })}
-            >
-              <Box checked={picked.length === 0} testID="scope-mark-whole-book" />
-              <BookOpen size={18} color={theme.colors.inkSoft} />
-              <AppText variant="body" weight="semibold" style={{ flex: 1 }}>
-                {fr.setup.scopeWhole}
-              </AppText>
-              <AppText variant="small" tone="soft">
-                {total}
-              </AppText>
-            </Pressable>
+    <Modal visible={visible} animationType="slide" onRequestClose={back}>
+      <Screen
+        scroll
+        testID="scope-picker"
+        footer={
+          loading ? null : (
+            <View style={{ gap: theme.space.xs }}>
+              {current ? (
+                <>
+                  <PrimaryButton
+                    testID="scope-confirm"
+                    icon={Check}
+                    label={fr.setup.scopeConfirmPart(current.label)}
+                    hint={fr.setup.scopeNames(current.characters)}
+                    onPress={() => onConfirm(current.nodeIds)}
+                  />
+                  <LinkButton testID="scope-whole-book" label={fr.setup.scopeWhole} onPress={() => onConfirm([])} />
+                </>
+              ) : (
+                <PrimaryButton
+                  testID="scope-whole-book"
+                  icon={BookOpen}
+                  label={fr.setup.scopeConfirmWhole}
+                  hint={fr.setup.scopeWholeHint}
+                  onPress={() => onConfirm([])}
+                />
+              )}
+            </View>
+          )
+        }
+      >
+        <TopBar onBack={back} backLabel={trail.length === 0 ? fr.app.close : fr.app.back} />
 
-            {rows.map((row) => line(row, 0, false))}
-          </ScrollView>
-
-          <View style={{ gap: theme.space.xs, paddingTop: theme.space.sm }}>
-            <AppText variant="small" tone="soft" testID="scope-count">
-              {picked.length === 0 ? fr.setup.scopeNoneChosen : fr.setup.scopeChosen(picked.length, names, total)}
+        <View style={{ gap: theme.space.md, paddingBottom: theme.space.lg }}>
+          <View style={{ gap: theme.space.xs }}>
+            {path.length > 0 ? (
+              <AppText variant="small" weight="semibold" tone="brass" testID="scope-breadcrumb">
+                {path.map((row) => row.label).join(' › ')}
+              </AppText>
+            ) : null}
+            <AppText variant="display" weight="medium" tight testID="scope-heading">
+              {current ? current.label : fr.setup.scopeTitle}
             </AppText>
-            <PrimaryButton
-              testID="scope-confirm"
-              icon={Check}
-              label={picked.length === 0 ? fr.setup.scopeConfirmWhole : fr.setup.scopeConfirm}
-              onPress={() => onConfirm(scopeOf(picked))}
-            />
+            <AppText variant="small" tone="soft">
+              {current ? fr.setup.scopeDrillHint : fr.setup.scopeHint}
+            </AppText>
           </View>
-        </>
-      )}
-    </Sheet>
-  );
-}
 
-/** The tick box of a row. */
-function Box({ checked, testID }: { checked: boolean; testID: string }) {
-  const theme = useTheme();
-  return (
-    <View
-      testID={testID}
-      style={{
-        width: 22,
-        height: 22,
-        borderRadius: 6,
-        borderWidth: 1,
-        borderColor: checked ? theme.colors.brass : theme.colors.inkFaint,
-        backgroundColor: checked ? theme.colors.brass : 'transparent',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {checked ? (
-        <AppText variant="micro" weight="bold" style={{ color: theme.colors.brassInk, lineHeight: 16 }}>
-          ✓
-        </AppText>
-      ) : null}
-    </View>
+          {loading ? (
+            <AppText variant="body" tone="soft" testID="scope-loading">
+              {fr.setup.scopeLoading}
+            </AppText>
+          ) : here.length === 0 ? (
+            <AppText variant="body" tone="soft" testID="scope-empty">
+              {fr.setup.scopeEmpty}
+            </AppText>
+          ) : (
+            <View style={{ gap: theme.space.xs }}>{here.map(part)}</View>
+          )}
+        </View>
+      </Screen>
+    </Modal>
   );
 }

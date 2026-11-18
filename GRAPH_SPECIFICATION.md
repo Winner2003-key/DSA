@@ -152,7 +152,7 @@ The graph is a chain of questions: `ANCIEN` is a *question* whose two answers ar
 2. a branch entered with a **NON** continues the list its question belongs to, so it is shown as a *sibling* of that question, and the question keeps only the names of the branches it still holds;
 3. a question with a single branch left **is** that branch, shown as one row.
 
-A row ticked in the picker puts its `nodeIds` in the scope — one section, or the few branches a side of a split question is spread over. The outline is only a way of reading the sections: nothing about the scope, the draw or the questions changes.
+The picker walks that outline a page at a time (the two testaments, then hommes/femmes, then the book's lists), and a row chosen puts its `nodeIds` in the scope — one section, or the few branches a side of a split question is spread over. The outline is only a way of reading the sections: nothing about the scope, the draw or the questions changes.
 
 ### Character card description
 - `bible_characters.description` is generated at import as `"<clue> · <nearest CATEGORY label>"`, for example `"Le révolté · NÉS À HÉBRON"`, and admins can edit it.

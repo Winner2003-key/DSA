@@ -154,7 +154,7 @@ describe('the drawn name stays inside the scope', () => {
   });
 });
 
-describe('the picker', () => {
+describe('the picker, page by page', () => {
   it('shows the book’s outline, not the graph’s shape', async () => {
     const { rows } = await sections();
     const outline = pickerRows(rows);
@@ -174,76 +174,109 @@ describe('the picker', () => {
     expect(outline[1]?.characters).toBe(3);
   });
 
-  it('« Tout le livre » is the first choice, and the one in force by default', async () => {
+  it('opens on the two testaments, and « Tout le livre » is one touch away', async () => {
     const { rows } = await sections();
     const chosen: string[][] = [];
     const screen = await renderWithProviders(
       <ScopePicker visible sections={rows} value={[]} onClose={() => undefined} onConfirm={(scope) => chosen.push(scope)} />,
     );
 
-    expect(screen.getByTestId('scope-whole-book').props.accessibilityState.checked).toBe(true);
-    expect(screen.getByTestId('scope-count')).toHaveTextContent('Tout le livre : le nom peut venir de n’importe où.');
-    expect(screen.getByText('Jouer avec tout le livre')).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('scope-confirm'));
-    });
-    expect(chosen).toEqual([[]]);
-  });
-
-  it('ticks a part of the book and confirms the sections underneath it', async () => {
-    const { rows } = await sections();
-    const outline = pickerRows(rows);
-    const nouveau = outline[1]!;
-    const chosen: string[][] = [];
-    const screen = await renderWithProviders(
-      <ScopePicker visible sections={rows} value={[]} onClose={() => undefined} onConfirm={(scope) => chosen.push(scope)} />,
-    );
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId(`scope-row-${nouveau.key}`));
-    });
-    expect(screen.getByTestId('scope-count')).toHaveTextContent('1 partie · 3 noms sur 13');
-    expect(screen.getByTestId('scope-whole-book').props.accessibilityState.checked).toBe(false);
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('scope-confirm'));
-    });
-    expect(chosen).toEqual([nouveau.nodeIds]);
-
-    // And that scope really is the Nouveau Testament.
-    const service = new OfflineGameService({ persist: false });
-    const { sessionId } = await service.createSession({
-      graphSlug: 'mini',
-      mode: 'LOCAL',
-      settings: { scope: nouveau.nodeIds },
-    });
-    expect(['JESUS-CHRIST', 'JACQUES']).toContain((await service.getMySecret(sessionId)).name);
-  });
-
-  it('going back to « Tout le livre » clears what was ticked', async () => {
-    const { rows } = await sections();
-    const outline = pickerRows(rows);
-    const chosen: string[][] = [];
-    const screen = await renderWithProviders(
-      <ScopePicker
-        visible
-        sections={rows}
-        value={outline[0]!.nodeIds}
-        onClose={() => undefined}
-        onConfirm={(scope) => chosen.push(scope)}
-      />,
-    );
-    // It opens on the choice in force.
-    expect(screen.getByTestId(`scope-row-${outline[0]!.key}`).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByTestId('scope-heading')).toHaveTextContent('D’où vient le nom à trouver ?');
+    expect(screen.getByText('Ancien Testament')).toBeTruthy();
+    expect(screen.getByText('Nouveau Testament')).toBeTruthy();
+    // Nothing from deeper in the book is on this page.
+    expect(screen.queryByText('PENTATEUQUE')).toBeNull();
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('scope-whole-book'));
     });
+    expect(chosen).toEqual([[]]);
+  });
+
+  it('touching a part opens its own page, and the button at the bottom keeps it', async () => {
+    const { rows } = await sections();
+    const outline = pickerRows(rows);
+    const ancien = outline[0]!;
+    const chosen: string[][] = [];
+    const screen = await renderWithProviders(
+      <ScopePicker visible sections={rows} value={[]} onClose={() => undefined} onConfirm={(scope) => chosen.push(scope)} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`scope-row-${ancien.key}`));
+    });
+
+    // A page of its own: its name, where we are, and the lists it contains.
+    expect(screen.getByTestId('scope-heading')).toHaveTextContent('Ancien Testament');
+    expect(screen.getByTestId('scope-breadcrumb')).toHaveTextContent('Ancien Testament');
+    expect(screen.getByText('PENTATEUQUE')).toBeTruthy();
+    expect(screen.getByText('LIVRE DE SAMUEL')).toBeTruthy();
+    expect(screen.queryByText('Nouveau Testament')).toBeNull();
+
     await act(async () => {
       fireEvent.press(screen.getByTestId('scope-confirm'));
     });
-    expect(chosen).toEqual([[]]);
+    expect(chosen).toEqual([ancien.nodeIds]);
+  });
+
+  it('goes deeper, comes back up, and leaves the page at the top', async () => {
+    const { rows } = await sections();
+    const outline = pickerRows(rows);
+    const ancien = outline[0]!;
+    const pentateuque = ancien.children.find((row) => row.label === 'PENTATEUQUE')!;
+    let closed = 0;
+    const screen = await renderWithProviders(
+      <ScopePicker visible sections={rows} value={[]} onClose={() => (closed += 1)} onConfirm={() => undefined} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`scope-row-${ancien.key}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`scope-row-${pentateuque.key}`));
+    });
+    expect(screen.getByTestId('scope-breadcrumb')).toHaveTextContent('Ancien Testament › PENTATEUQUE');
+    expect(screen.getByText('LIE A ADAM')).toBeTruthy();
+
+    // Back goes one page up, twice, and only then does it close the picker.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('top-back'));
+    });
+    expect(screen.getByTestId('scope-heading')).toHaveTextContent('Ancien Testament');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('top-back'));
+    });
+    expect(screen.getByTestId('scope-heading')).toHaveTextContent('D’où vient le nom à trouver ?');
+    expect(closed).toBe(0);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('top-back'));
+    });
+    expect(closed).toBe(1);
+  });
+
+  it('a part with nothing under it is chosen by touching it', async () => {
+    const { rows } = await sections();
+    const outline = pickerRows(rows);
+    const ancien = outline[0]!;
+    const trois = ancien.children.find((row) => row.label === 'LES 3 PREMIERS')!;
+    expect(trois.children).toHaveLength(0);
+    const chosen: string[][] = [];
+    const screen = await renderWithProviders(
+      <ScopePicker visible sections={rows} value={[]} onClose={() => undefined} onConfirm={(scope) => chosen.push(scope)} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`scope-row-${ancien.key}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`scope-row-${trois.key}`));
+    });
+    expect(chosen).toEqual([trois.nodeIds]);
+
+    // And that scope really is that part of the book.
+    const service = new OfflineGameService({ persist: false });
+    const { sessionId } = await service.createSession({ graphSlug: 'mini', mode: 'LOCAL', settings: { scope: trois.nodeIds } });
+    expect((await service.getMySecret(sessionId)).name).toBe('JOSUE');
   });
 
   it('never renders a name or a clue', async () => {
@@ -254,6 +287,16 @@ describe('the picker', () => {
     for (const forbidden of ['CAÏN', 'ADAM', 'DAVID', 'JESUS-CHRIST', 'Le meurtrier']) {
       expect(screen.queryByText(forbidden)).toBeNull();
     }
+  });
+
+  it('an old server, with no answers in its rows, still never shows the START node', async () => {
+    const { rows } = await sections();
+    const old = rows.map((row) => ({ ...row, node_type: null, answer_label: null }));
+    const screen = await renderWithProviders(
+      <ScopePicker visible sections={old} value={[]} onClose={() => undefined} onConfirm={() => undefined} />,
+    );
+    expect(screen.queryByText('DSA')).toBeNull();
+    expect(screen.getByText('ANCIEN')).toBeTruthy();
   });
 });
 

@@ -161,28 +161,26 @@ export const fr = {
 
     // "Practise a part of the book": it changes only which name is drawn.
     /** The line on « Nouvelle partie » that opens the sommaire, with its value. */
-    scopeSectionTitle: 'Partie du livre',
+    scopeSectionTitle: 'Choisir la partie du livre',
     scopeWhole: 'Tout le livre',
     scopeWholeHint: 'Le nom peut venir de n’importe quelle page.',
     scopeChoose: 'Choisir une partie',
-    scopeChooseHint: 'S’entraîner sur une section : le nom vient de là.',
-    scopeChangeChoice: 'Changer la partie choisie',
-    scopeChosenByCreator: 'Celui qui crée la partie choisit pour les deux joueurs.',
     /** Always said, so nobody expects the questions to be shortened too. */
     scopeQuestionsUnchanged: 'Les questions commencent toujours au début du livre.',
 
     scopeTitle: 'D’où vient le nom à trouver ?',
-    scopeHint: 'Tout le livre, ou une partie : l’Ancien ou le Nouveau, les hommes ou les femmes, un livre précis.',
+    scopeHint: 'Tout le livre, ou une partie : touche l’Ancien ou le Nouveau Testament pour voir ce qu’il contient.',
+    /** On every page below the first: how to go deeper, and how to stop here. */
+    scopeDrillHint: 'Touche une partie pour l’ouvrir, ou garde celle-ci avec le bouton du bas.',
     scopeLoading: 'On lit le sommaire du livre…',
-    scopeEmpty: 'Aucune section à afficher.',
-    scopeConfirm: 'Utiliser cette partie',
+    scopeEmpty: 'Rien à afficher dans cette partie.',
+    scopeConfirmPart: (label: string) => `Jouer avec ${label}`,
     scopeConfirmWhole: 'Jouer avec tout le livre',
-    scopeNoneChosen: 'Tout le livre : le nom peut venir de n’importe où.',
     scopeNames: (n: number) => (n <= 1 ? `${n} nom` : `${n} noms`),
-    scopeChosen: (parts: number, names: number, total: number) =>
-      `${parts === 1 ? '1 partie' : `${parts} parties`} · ${names <= 1 ? `${names} nom` : `${names} noms`} sur ${total}`,
+    /** « 242 noms · 7 parties » — what a part holds, and that it opens. */
+    scopeNamesAndParts: (names: number, parts: number) =>
+      `${names <= 1 ? `${names} nom` : `${names} noms`} · ${parts === 1 ? '1 partie' : `${parts} parties`}`,
     scopeExpand: (label: string) => `Ouvrir ${label}`,
-    scopeCollapse: (label: string) => `Fermer ${label}`,
     /**
      * The two questions that cut the book in two rather than open a list. The
      * book asks « ANCIEN ? » and « HOMME ? »; the sommaire names both answers,
