@@ -6,7 +6,16 @@
  * way out is a new game with Boutons).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TranscribeError, isLikelyHallucination, type DecisionEvidence, type VoiceDiagnostic } from '@dsa/voice';
+import {
+  METER_MIN_DB,
+  NOISE_FLOOR_PERCENTILE,
+  TranscribeError,
+  isLikelyHallucination,
+  percentile,
+  type DecisionEvidence,
+  type EnvelopeSample,
+  type VoiceDiagnostic,
+} from '@dsa/voice';
 
 import { fr } from '@/i18n/fr';
 import type { Recording, RecorderErrorCode } from './recorder-types';
@@ -64,6 +73,20 @@ export interface VoiceTurn {
   tap: () => void;
 }
 
+/**
+ * Loudest and quietest of the metering samples, for the diagnostic's `niveau`
+ * line. The floor is the same percentile `analyzeEnvelope` uses, so the two
+ * lines of the block cannot disagree about what counts as quiet.
+ */
+function levels(envelope: readonly EnvelopeSample[]): { peakDb: number | null; noiseFloorDb: number | null } {
+  if (envelope.length === 0) return { peakDb: null, noiseFloorDb: null };
+  const dbs = envelope.map((sample) => sample.db);
+  return {
+    peakDb: Math.max(METER_MIN_DB, ...dbs),
+    noiseFloorDb: percentile(dbs, NOISE_FLOOR_PERCENTILE),
+  };
+}
+
 /** "Ancien ?" → « Ancien » for the "J'ai entendu" line. */
 export function cleanTranscript(text: string): string {
   return text.trim().replace(/^[\s.,;:!?…«»"]+|[\s.,;:!?…«»"]+$/gu, '');
@@ -115,6 +138,8 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
       bytes: null,
       mimeType: '—',
       envelopeSamples: 0,
+      peakDb: null,
+      noiseFloorDb: null,
       serverMs: null,
       provider: null,
       errorCode: null,
@@ -146,6 +171,7 @@ export function useVoiceTurn(options: VoiceTurnOptions): VoiceTurn {
       bytes: recording.audio.kind === 'blob' ? recording.audio.blob.size : null,
       mimeType: recording.mimeType,
       envelopeSamples: recording.envelope.length,
+      ...levels(recording.envelope),
       serverMs: null,
       provider: null,
       errorCode: null,

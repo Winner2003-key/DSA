@@ -8,7 +8,7 @@ import { act, fireEvent, waitFor } from '@testing-library/react-native';
 import { TranscribeError } from '@dsa/voice';
 
 import { setVoiceDiagnostic } from '@/speech/voice-settings';
-import { activateMic, closeVoiceHarness, resetVoiceHarness, speak, start, transcribe } from './voice-harness';
+import { activateMic, closeVoiceHarness, resetVoiceHarness, said, speak, start, transcribe } from './voice-harness';
 import { fakeMic } from './fake-recorder';
 import { resetFakeMicPermission } from './fake-mic-permission';
 
@@ -83,6 +83,7 @@ describe('the diagnostic', () => {
     // these are patterns on purpose.)
     const block = await waitFor(() => screen.getByTestId('voice-diagnostic'));
     expect(block).toHaveTextContent(/micro\s+\d+ ms · \d+ mesures · audio\/m4a/);
+    expect(block).toHaveTextContent(/niveau\s+crête -\d+ dB · fond -\d+ dB/);
     expect(block).toHaveTextContent(/serveur\s+groq · \d+ ms/);
     expect(block).toHaveTextContent(/texte\s+« Hui »/);
     expect(block).toHaveTextContent(/lecture\s+OUI · via closed-set/);
@@ -130,5 +131,34 @@ describe('the diagnostic', () => {
 
     await waitFor(() => expect(screen.getByTestId('voice-diagnostic')).toHaveTextContent(/jeu\s+trop court, rien envoyé/));
     expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  it('says "aucune voix captée" when the stream carried nothing', async () => {
+    const { screen } = await tireurAtAncien();
+    await act(async () => {
+      setVoiceDiagnostic(true);
+    });
+    // The microphone was allowed and the recorder ran, but every frame is at the
+    // noise floor — an iPhone browser whose stream is silent, which otherwise
+    // looks exactly like a player who said nothing.
+    fakeMic.next = {
+      audio: { kind: 'file', uri: 'file:///cache/parole.m4a' },
+      mimeType: 'audio/m4a',
+      fileName: 'parole.m4a',
+      durationMs: 1200,
+      envelope: Array.from({ length: 24 }, (_, i) => ({ tMs: i * 50, db: -55 })),
+    };
+    said('');
+    await waitFor(() => expect(screen.getByTestId('voice-button-idle')).toBeTruthy());
+    await act(async () => {
+      activateMic(screen);
+    });
+    await waitFor(() => expect(screen.getByTestId('voice-button-listening')).toBeTruthy());
+    await act(async () => {
+      activateMic(screen);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('voice-diagnostic')).toHaveTextContent(/aucune voix captée/));
   });
 });

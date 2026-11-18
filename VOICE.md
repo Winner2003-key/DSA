@@ -258,7 +258,8 @@ What this means for DSA: each spoken answer is one request, so on Groq's free pl
 | The text is right but OUI vs OUIOUIOUI is wrong | Expected: Whisper writes a held "ouiiii" as "Oui". The app decides that from the sound, not the text (`packages/voice`, calibration in the app settings). |
 | Whisper answers silence with "Sous-titrage Société Radio-Canada" or "Merci." | Expected, and handled: `isLikelyHallucination` (`packages/voice`) drops it, so the player gets "Je n'ai pas bien compris" instead of seeing the credits. If a new piece of boilerplate gets through, add it to that list. |
 | A name is heard but the game doesn't take it | The matcher found two names too close to tell apart, or none above its threshold. Measure before changing anything: `npm run voice:eval`. |
-| The Tireur says OUI and the game doesn't take it | First turn on **Réglages de la voix → Diagnostic** (see below) and look at one turn. `serveur` tells you whether it reached Groq; `texte` tells you what Whisper wrote; `lecture` and `jeu` tell you what the matcher made of it. If `lecture` says `mot —`, add that transcript to `scripts/voice-eval/answers.ts` and run `npm run voice:eval -- --answers`. |
+| The Tireur says OUI and the game doesn't take it | First turn on **Réglages de la voix → Diagnostic** (§8) and look at one turn. `serveur` tells you whether it reached Groq; `texte` tells you what Whisper wrote; `lecture` and `jeu` tell you what the matcher made of it. If `lecture` says `mot —`, add that transcript to `scripts/voice-eval/answers.ts` and run `npm run voice:eval -- --answers`. |
+| It works in the browser on the laptop and not in the browser on the phone | « Je n'ai pas bien compris » (rather than a banner) means the request **succeeded** and came back with nothing, so the server, the keys and the matcher are all fine: the recording is. Read `niveau` and `texte` in the diagnostic (§8): `aucune voix captée` is the microphone; a normal `niveau` with `texte (vide)` is the encoding. The known encoding case is **Safari**, which has no webm and records `audio/mp4` — asking it for the audio in slices gave an init segment plus fragments that Groq could not open. Fixed by recording in one piece; if you see it again, the format on the `micro` line is the first thing to report. |
 | Transcript in the wrong language on the fallback | Hugging Face's endpoint has no language parameter, so very short clips can be detected as another language. Groq always gets `language=fr`. |
 | CLI: `Cannot find project ref` | Add `--project-ref <ref>` (step 4b), or run `npx supabase link --project-ref <ref>` once. |
 | CLI: asks for Docker | Add `--use-api`. Update the CLI with `npx supabase@latest …` if the flag is unknown. |
@@ -274,6 +275,7 @@ happened on the last turn:
 
 ```
 micro     1240 ms · 24 mesures · audio/webm · 9.4 ko
+niveau    crête -18 dB · fond -52 dB
 serveur   groq · 1462 ms
 texte     « Oui. »
 lecture   OUI · via strict · ×1
@@ -286,6 +288,7 @@ Read it from the top; the first line that looks wrong is the one to chase.
 | Line | What it says | What a wrong value means |
 |---|---|---|
 | `micro` | length, metering samples, format, size | Under 250 ms: the hold was a slip of the finger and nothing was sent (`jeu` says `trop court`). `0 mesures`: the envelope could not be measured, so OUI vs OUIOUIOUI will always ask. `micro : PERMISSION_DENIED`: the microphone was refused. |
+| `niveau` | the loudest and quietest frames, in dBFS | **This is the line that answers "is it the microphone?"** A peak near the floor prints `aucune voix captée`: the stream carried nothing, whatever the length says — the phone's microphone is held by another app, muted, or pointed away. A healthy held word peaks 15–40 dB above the floor. |
 | `serveur` | the provider and the round trip, or the `DSA_VOICE_…` code | A code here is §7 above; the function's **Logs** tab adds the exact `step`. |
 | `texte` | the transcript, exactly as Whisper wrote it | This is the line to copy into the eval table. `(vide)` means silence. |
 | `lecture` | the word, and which pass found it (`strict`, `lenient`, `closed-set`) | `mot —` is the matcher's failure, not the recogniser's: the words arrived and were not understood. |

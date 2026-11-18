@@ -130,7 +130,14 @@ export function useRecorder(): Recorder {
         onSample?.(sample);
       }, METERING_INTERVAL_MS);
 
-      media.start(250);
+      // No timeslice. Nothing reads the chunks before `stop`, and asking for
+      // them breaks Safari: it has no webm, so `pickMimeType` lands on
+      // `audio/mp4`, and a timesliced MP4 arrives as an init segment followed by
+      // media fragments. `new Blob(chunks)` then builds a file the decoder
+      // cannot open — the request succeeds, the transcript comes back empty, and
+      // the player is told « Je n'ai pas bien compris » on an iPhone while the
+      // same code works in Chrome. One call, one Blob, every browser.
+      media.start();
       session.current = {
         stream,
         media,

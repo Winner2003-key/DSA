@@ -11,6 +11,7 @@
 // anything; it only reports. It holds no audio and no key.
 
 import type { DecisionEvidence } from './answer-decision';
+import { VOICE_MARGIN_DB } from './envelope';
 import type { TranscribeErrorCode, TranscribeProvider } from './transcribe-client';
 
 export interface VoiceDiagnostic {
@@ -22,6 +23,14 @@ export interface VoiceDiagnostic {
   mimeType: string;
   /** Metering samples collected — zero means the envelope could not be measured. */
   envelopeSamples: number;
+  /**
+   * Loudest and quietest of those samples, in dBFS. This is the line that
+   * answers "is it the microphone?": a peak at the noise floor means the stream
+   * carried no voice, whatever the recording's length says. Null when there was
+   * no envelope at all.
+   */
+  peakDb: number | null;
+  noiseFloorDb: number | null;
 
   // --- the server ---
   /** Round trip measured by the app, including the upload. */
@@ -62,6 +71,21 @@ export function formatDiagnostic(d: VoiceDiagnostic): DiagnosticLine[] {
   const micro = [ms(d.durationMs), `${d.envelopeSamples} mesures`, d.mimeType];
   if (d.bytes !== null) micro.push(`${(d.bytes / 1024).toFixed(1)} ko`);
   lines.push({ label: 'micro', value: micro.join(' · ') });
+
+  if (d.peakDb !== null) {
+    // A peak within a few dB of the floor is a stream with nothing in it.
+    const quiet = d.noiseFloorDb !== null && d.peakDb - d.noiseFloorDb < VOICE_MARGIN_DB;
+    lines.push({
+      label: 'niveau',
+      value: [
+        `crête ${Math.round(d.peakDb)} dB`,
+        d.noiseFloorDb === null ? null : `fond ${Math.round(d.noiseFloorDb)} dB`,
+        quiet ? 'aucune voix captée' : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    });
+  }
 
   if (d.errorCode !== null) {
     lines.push({ label: 'serveur', value: [d.errorCode, d.serverMs === null ? null : ms(d.serverMs)].filter(Boolean).join(' · ') });
